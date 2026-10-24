@@ -1,1278 +1,1476 @@
 <!DOCTYPE html>
-<html lang="es" class="dark">
+<html lang="en" class="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>LINE 6 POD GO | Smart Cloud & AI Tone Studio</title>
+  <title>LINE 6 POD GO Pro AI Tone Studio v2.50</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
   <script>
     tailwind.config = {
       darkMode: 'class',
       theme: {
         extend: {
+          colors: {
+            brand: {
+              bg: '#080a0f',
+              panel: '#10141d',
+              card: '#151b26',
+              accent: '#ff2a2a',
+              accentHover: '#dc2626',
+              text: '#f1f5f9',
+              muted: '#94a3b8',
+              border: '#262f40'
+            }
+          },
           fontFamily: {
             sans: ['Inter', 'sans-serif'],
-            mono: ['JetBrains Mono', 'monospace'],
+            mono: ['JetBrains Mono', 'monospace']
           }
         }
       }
-    }
+    };
   </script>
   <style>
-    body {
-      background-color: #090d16;
-      color: #f3f4f6;
-      -webkit-tap-highlight-color: transparent;
+    body { background-color: #080a0f; color: #f1f5f9; -webkit-tap-highlight-color: transparent; }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+
+    /* Barras Rectangulares Estilo Pantalla LCD Line 6 POD Go */
+    .pod-bar-widget { user-select: none; touch-action: none; }
+    .pod-bar-track {
+      position: relative;
+      height: 11px;
+      background-color: #64748b45;
+      border-radius: 2px;
+      overflow: hidden;
     }
-    .gauge-ring {
-      transition: stroke-dashoffset 0.6s cubic-bezier(0.22, 1, 0.36, 1);
-      transform: rotate(-90deg);
-      transform-origin: 50% 50%;
+    .pod-bar-fill {
+      height: 100%;
+      transition: width 0.15s ease-out;
+      border-right: 2px solid rgba(255, 255, 255, 0.9);
     }
-    .custom-scrollbar::-webkit-scrollbar {
-      width: 4px;
-      height: 4px;
+    .edit-mode .pod-bar-track {
+      box-shadow: 0 0 8px rgba(255, 42, 42, 0.35);
+      outline: 1px solid rgba(255, 255, 255, 0.25);
     }
-    .custom-scrollbar::-webkit-scrollbar-thumb {
-      background: #27272a;
-      border-radius: 9999px;
-    }
+    .edit-mode .pod-bar-widget { cursor: ew-resize !important; }
+    .view-mode .pod-bar-widget { cursor: default !important; }
   </style>
+
+  <!-- FIREBASE SECURITY GUARD, GLOBAL VAULT & SMART SYNC -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js";
+    import { getFirestore, doc, getDoc, setDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDMZxIgDvBRJNyIZuo3CDwnyvx1INm7LsM",
+      authDomain: "mooer-ai-tone-studio.firebaseapp.com",
+      projectId: "mooer-ai-tone-studio",
+      storageBucket: "mooer-ai-tone-studio.firebasestorage.app",
+      messagingSenderId: "666841738973",
+      appId: "1:666841738973:web:2c0937a5b2a51b143c3534"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    window.firebaseAuth = auth;
+    window.firebaseDb = db;
+    window.firestoreDoc = doc;
+    window.firestoreGetDoc = getDoc;
+    window.firestoreSetDoc = setDoc;
+    window.firestoreCollection = collection;
+    window.firestoreGetDocs = getDocs;
+
+    window.currentUserData = { freeGenerationsUsed: 0, isPro: false };
+    window.globalCloudPresets = {};
+    window.cloudGeminiKey = "";
+
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        window.location.href = "login.html";
+      } else {
+        const isAdmin = user.email && user.email.toLowerCase() === "faustolute@gmail.com";
+
+        const keyBtn = document.getElementById('keyBtn');
+        if (keyBtn) {
+          keyBtn.style.display = isAdmin ? 'inline-flex' : 'none';
+        }
+
+        // 1. Perfil del usuario
+        const userRef = doc(db, "users", user.uid);
+        try {
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+            window.currentUserData = userSnap.data();
+          } else {
+            window.currentUserData = {
+              uid: user.uid,
+              email: user.email,
+              freeGenerationsUsed: 0,
+              isPro: false,
+              createdAt: new Date().toISOString()
+            };
+            await setDoc(userRef, window.currentUserData);
+          }
+          if (typeof window.updateLibraryVisibility === 'function') {
+            window.updateLibraryVisibility();
+          }
+        } catch (error) {
+          console.error("Error al sincronizar perfil:", error);
+        }
+
+        // 2. Descargar la API Key maestra desde Firestore (compartida con tu cuenta Admin)
+        try {
+          const configRef = doc(db, "app_config", "ai_engine");
+          const configSnap = await getDoc(configRef);
+          if (configSnap.exists() && configSnap.data().geminiKey) {
+            window.cloudGeminiKey = configSnap.data().geminiKey;
+            localStorage.setItem('PODGO_GEMINI_KEY', window.cloudGeminiKey);
+            if (typeof window.updateApiStatus === 'function') window.updateApiStatus();
+          } else if (isAdmin) {
+            const localKey = localStorage.getItem('PODGO_GEMINI_KEY') || localStorage.getItem('GE300_GEMINI_KEY');
+            if (localKey && localKey.trim() !== '') {
+              await setDoc(configRef, { geminiKey: localKey.trim() }, { merge: true });
+              window.cloudGeminiKey = localKey.trim();
+              if (typeof window.updateApiStatus === 'function') window.updateApiStatus();
+            }
+          }
+        } catch (e) {
+          console.warn("No se pudo leer config global:", e);
+        }
+
+        // 3. Sincronizar el Banco Secreto Global de Tonos exclusivo de Line 6 POD Go
+        try {
+          const presetsCol = collection(db, "podgo_global_presets");
+          const snapshot = await getDocs(presetsCol);
+          snapshot.forEach(docSnap => {
+            const data = docSnap.data();
+            window.globalCloudPresets[docSnap.id] = data;
+            const existingLocal = localStorage.getItem(docSnap.id);
+            if (!existingLocal) {
+              localStorage.setItem(docSnap.id, JSON.stringify({ ...data, isFav: false, favUsers: [] }));
+            }
+          });
+
+          if (isAdmin) {
+            for (let i = 0; i < localStorage.length; i++) {
+              let k = localStorage.key(i);
+              if (k && k.startsWith('PODGO_CACHE_') && !window.globalCloudPresets[k]) {
+                try {
+                  let localPreset = JSON.parse(localStorage.getItem(k));
+                  if (localPreset && localPreset.title) {
+                    await setDoc(doc(db, "podgo_global_presets", k), localPreset, { merge: true });
+                    window.globalCloudPresets[k] = localPreset;
+                  }
+                } catch (err) {}
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("Error sincronizando banco global POD Go:", e);
+        }
+      }
+    });
+
+    window.addEventListener('DOMContentLoaded', () => {
+      const logoutBtn = document.getElementById('logout-btn');
+      if (logoutBtn) {
+        logoutBtn.addEventListener('click', async () => {
+          try {
+            await signOut(auth);
+            window.location.href = "login.html";
+          } catch (error) {
+            console.error("Error signing out:", error);
+          }
+        });
+      }
+    });
+  </script>
 </head>
-<body class="min-h-screen flex flex-col font-sans pb-20 selection:bg-red-500 selection:text-white">
+<body class="flex flex-col h-[100dvh] overflow-hidden font-sans">
 
-  <!-- TOP HEADER (Estilo MOOER GE300 adaptado a Line 6 POD Go) -->
-  <header class="sticky top-0 z-40 bg-[#0b101b]/95 backdrop-blur-md border-b border-slate-800/80 px-3.5 py-3">
-    <div class="max-w-xl mx-auto flex items-center justify-between gap-2">
-      <!-- Brand -->
-      <div class="flex items-center gap-2.5 min-w-0">
-        <div class="w-9 h-9 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-center shrink-0 shadow-inner">
-          <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-          </svg>
-        </div>
-        <div class="truncate">
-          <h1 class="text-sm sm:text-base font-extrabold tracking-tight text-white leading-tight truncate">
-            LINE 6 POD GO
-          </h1>
-          <p class="text-[11px] text-slate-400 leading-tight truncate">
-            Smart Cloud & AI Engine v2.50
-          </p>
-        </div>
+  <!-- TOP HEADER -->
+  <header class="bg-brand-panel border-b border-brand-border px-4 py-3 flex items-center justify-between shrink-0 z-10">
+    <div class="flex items-center gap-2.5">
+      <div class="w-8 h-8 rounded-lg bg-brand-accent/15 border border-brand-accent/40 flex items-center justify-center text-brand-accent shrink-0">
+        <i class="fa-solid fa-guitar text-sm"></i>
       </div>
-
-      <!-- Actions -->
-      <div class="flex items-center gap-2 shrink-0">
-        <button onclick="openApiKeyModal()" id="apiKeyBtn" title="Configurar Gemini API Key"
-          class="w-8 h-8 rounded-lg bg-slate-800/90 hover:bg-slate-700 border border-slate-700 flex items-center justify-center text-red-400 transition">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-          </svg>
-        </button>
-
-        <span id="engineBadge" onclick="openApiKeyModal()"
-          class="cursor-pointer text-[11px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-lg bg-red-500/10 text-red-400 border border-red-500/30">
-          AI STUDIO
-        </span>
-
-        <a href="premium.html"
-          class="text-xs font-bold text-slate-300 hover:text-white px-2 py-1 rounded-lg border border-slate-800 hover:border-slate-700 transition">
-          PRO
-        </a>
+      <div>
+        <h1 class="font-black text-sm leading-tight text-white tracking-wide">
+          LINE 6 <span class="text-brand-accent">POD GO</span>
+        </h1>
+        <p class="text-[10px] text-brand-muted leading-tight" id="apiStatusText">Smart Cloud & AI Engine v2.50</p>
       </div>
+    </div>
+    <div class="flex items-center gap-2 shrink-0">
+      <button type="button" onclick="toggleApiKeyModal()" title="Configure Master API Key" style="display:none;" class="p-2 rounded-lg bg-brand-border/40 hover:bg-brand-border text-brand-text transition-colors cursor-pointer" id="keyBtn">
+        <i class="fa-solid fa-key text-xs" id="keyIcon"></i>
+      </button>
+      <span class="text-[10px] font-mono text-brand-accent font-bold bg-brand-accent/10 px-2.5 py-1 rounded-md border border-brand-accent/30 whitespace-nowrap">AI STUDIO</span>
+      <button id="logout-btn" class="text-xs text-brand-muted hover:text-brand-accent flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-colors whitespace-nowrap">
+        <i class="fa-solid fa-right-from-bracket"></i> <span class="hidden sm:inline">Sign Out</span>
+      </button>
     </div>
   </header>
 
-  <!-- MAIN CONTAINER -->
-  <main class="flex-1 max-w-xl w-full mx-auto px-3.5 pt-3.5 space-y-4">
+  <!-- VIEW: TONE AI SEARCH & LCD DISPLAY -->
+  <div id="viewSearch" class="flex flex-col flex-1 overflow-hidden">
+    <section class="p-3.5 bg-brand-panel/60 border-b border-brand-border shrink-0">
+      <form id="aiToneForm" class="relative flex items-center">
+        <i class="fa-solid fa-wand-magic-sparkles absolute left-3.5 text-brand-accent text-xs"></i>
+        <input type="text" id="toneSearchInput" placeholder="Search song + section (e.g. like a stone solo)..." class="w-full bg-brand-bg text-xs text-brand-text placeholder-brand-muted pl-9 pr-24 py-2.5 rounded-xl border border-brand-border focus:outline-none focus:border-brand-accent transition-opacity" required />
+        <button type="submit" id="searchBtn" class="absolute right-1 bg-brand-accent hover:bg-brand-accentHover text-white font-bold text-xs px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer min-w-[78px] justify-center shadow-md shadow-red-600/20">
+          <span id="btnText">Search</span>
+          <i id="btnIcon" class="fa-solid fa-arrow-right text-[10px]"></i>
+        </button>
+      </form>
+    </section>
 
-    <!-- TABS VIEW: TONE AI -->
-    <section id="view-tone" class="space-y-3.5">
+    <main class="flex-1 overflow-y-auto p-3.5 pb-12 space-y-4 hide-scrollbar view-mode" id="mainPresetContainer">
+      <div class="bg-brand-card rounded-2xl border border-brand-border p-4 space-y-4 shadow-xl shadow-black/40">
 
-      <!-- SMART SEARCH BAR -->
-      <div class="space-y-2">
-        <form onsubmit="handleSmartSearch(event)" class="relative flex items-center bg-[#0f1623] border border-slate-800 focus-within:border-red-500/60 rounded-2xl p-1.5 shadow-lg transition">
-          <div class="pl-2.5 pr-2 text-red-500">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-            </svg>
+        <!-- LCD TOP BAR (Idéntica a la foto de la Line 6 POD Go) -->
+        <div class="border-b border-brand-border/70 pb-3 space-y-2.5">
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="text-[10px] font-mono bg-brand-accent/15 text-brand-accent border border-brand-accent/30 px-1.5 py-0.5 rounded font-bold" id="presetBank">01A</span>
+                <span class="text-[10px] font-mono bg-white/5 text-slate-300 border border-white/10 px-1.5 py-0.5 rounded font-bold flex items-center gap-1" id="snapshotBadge">
+                  <i class="fa-solid fa-camera text-[9px] text-brand-accent"></i> <span id="presetSectionTag">SNAP 1</span>
+                </span>
+              </div>
+              <h2 class="text-base font-extrabold text-white mt-1.5 leading-tight tracking-tight" id="songTitle">SODA STEREO - MÚSICA LIGERA</h2>
+            </div>
+
+            <div class="flex items-center gap-1.5 shrink-0 bg-brand-bg/70 p-1 rounded-lg border border-brand-border/50">
+              <button id="btnEdit" onclick="toggleEditMode()" class="px-2.5 py-1.5 rounded-md text-[10px] font-bold text-brand-muted hover:bg-brand-border/50 transition-colors flex items-center gap-1.5">
+                <i class="fa-solid fa-pen-to-square"></i> <span>Edit</span>
+              </button>
+              <div class="w-px h-4 bg-brand-border"></div>
+              <button id="btnFav" onclick="toggleFavorite()" class="p-1.5 rounded-md text-brand-muted hover:text-red-500 transition-colors text-sm">
+                <i class="fa-regular fa-heart" id="favIcon"></i>
+              </button>
+            </div>
           </div>
-          <input
-            id="searchInput"
-            type="text"
-            autocomplete="off"
-            placeholder="Search song + part (e.g. like a stone solo)..."
-            class="w-full bg-transparent text-sm text-white placeholder-slate-500 focus:outline-none pr-2"
-          />
-          <button
-            type="submit"
-            id="searchBtn"
-            class="bg-red-600 hover:bg-red-500 active:scale-95 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition flex items-center gap-1 shrink-0 shadow-md shadow-red-600/20">
-            <span>Search</span>
-            <span>→</span>
-          </button>
-        </form>
 
-        <!-- Quick Rig & Output Filters + Quick Test Chips -->
-        <div class="flex items-center justify-between gap-2 text-[11px] text-slate-400 overflow-x-auto custom-scrollbar pb-0.5">
-          <div class="flex items-center gap-1.5 shrink-0">
-            <span class="text-slate-500 font-semibold">Quick test:</span>
-            <button onclick="quickSearch('like stone solo')" class="px-2 py-0.5 rounded-md bg-slate-800/80 hover:bg-slate-700 text-slate-300 transition">like stone solo</button>
-            <button onclick="quickSearch('like a stone intro')" class="px-2 py-0.5 rounded-md bg-slate-800/80 hover:bg-slate-700 text-slate-300 transition">like a stone intro</button>
-            <button onclick="quickSearch('musica ligera')" class="px-2 py-0.5 rounded-md bg-slate-800/80 hover:bg-slate-700 text-slate-300 transition">música ligera</button>
-            <button onclick="quickSearch('master of puppets')" class="px-2 py-0.5 rounded-md bg-slate-800/80 hover:bg-slate-700 text-slate-300 transition">master of puppets</button>
+          <!-- Stars + Safe Mode -->
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-1 text-brand-muted text-xs" id="ratingStars"></div>
+            <span class="text-[9px] text-brand-accent bg-brand-accent/10 px-2 py-0.5 rounded font-mono border border-brand-accent/20" id="editStatusBadge">🔒 Safe Mode</span>
+          </div>
+
+          <p class="text-[11px] text-brand-muted leading-relaxed" id="soundDescription">Ready. Search any guitar tone above.</p>
+        </div>
+
+        <!-- UPPER PICKUPS & INPUT GATE -->
+        <div class="grid grid-cols-2 gap-2.5 bg-brand-bg/70 p-2.5 rounded-xl border border-brand-border/50 text-[11px]">
+          <div class="flex items-center gap-2.5">
+            <i class="fa-solid fa-sliders text-brand-accent"></i>
+            <div class="min-w-0">
+              <span class="block text-brand-muted text-[9px] uppercase font-bold">Pickups</span>
+              <span class="font-bold text-white truncate block" id="pickupRec">Bridge</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2.5 border-l border-brand-border/50 pl-2.5">
+            <i class="fa-solid fa-shield-halved text-brand-accent"></i>
+            <div class="min-w-0">
+              <span class="block text-brand-muted text-[9px] uppercase font-bold">Input Gate</span>
+              <span class="font-mono font-bold text-white truncate block" id="inputGateRec">-45.0dB / 30%</span>
+            </div>
           </div>
         </div>
-      </div>
 
-      <!-- CACHE / AI STATUS BANNER -->
-      <div id="statusBanner" class="hidden rounded-xl px-3 py-2 text-xs font-medium border flex items-center justify-between">
-        <span id="statusBannerText"></span>
-        <span id="statusBannerTag" class="font-mono text-[10px] uppercase px-2 py-0.5 rounded"></span>
-      </div>
+        <!-- MINI VISUAL SIGNAL CHAIN BAR (Como la fila superior de iconos de la pantalla Line 6) -->
+        <div class="bg-[#05070b] border border-brand-border/60 rounded-xl px-3 py-2 flex items-center justify-between gap-1 overflow-x-auto hide-scrollbar" id="miniSignalChain"></div>
 
-      <!-- PRESET CARD CONTAINER -->
-      <div id="presetCardContainer"></div>
-
-    </section>
-
-    <!-- TABS VIEW: LIBRARY (CACHÉ INTELIGENTE + GUARDADOS) -->
-    <section id="view-library" class="hidden space-y-3.5">
-      <div class="bg-[#111827] border border-slate-800 rounded-2xl p-4 space-y-3">
-        <div class="flex items-center justify-between">
-          <div>
-            <h2 class="text-base font-extrabold text-white uppercase tracking-wide">Smart Cloud Cache & Bank</h2>
-            <p class="text-xs text-slate-400">Presets verificados listos para búsqueda instantánea sin duplicar llamadas IA.</p>
-          </div>
-          <span id="cacheCountBadge" class="text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-red-500/10 text-red-400 border border-red-500/30">0 Presets</span>
+        <!-- POD GO LCD BLOCKS CONTAINER (CON BARRAS RECTANGULARES REALES) -->
+        <div class="space-y-3">
+          <h3 class="text-[11px] font-mono uppercase text-brand-muted font-bold flex items-center justify-between">
+            <span class="flex items-center gap-1.5"><i class="fa-solid fa-microchip text-brand-accent"></i> POD Go v2.50 LCD Parameters</span>
+            <span class="text-[9px] text-slate-500 font-normal">Rectangular Bar View</span>
+          </h3>
+          <div id="effectBlocksContainer" class="space-y-3"></div>
         </div>
-        <div id="libraryList" class="space-y-2.5"></div>
+
+        <!-- BOTTOM BRIEF ASSIGNMENTS (FOOTSWITCHES, EXP & SNAPSHOTS) -->
+        <div class="bg-brand-bg/90 rounded-xl p-3 border border-brand-border/60 text-[11px] space-y-1.5 mt-2">
+          <span class="block font-mono text-[9px] uppercase font-bold text-brand-accent">Stomp, EXP & Snapshot Assignments</span>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-slate-300 font-mono text-[10px]" id="ctrlAssignments"></div>
+        </div>
+
       </div>
-    </section>
+    </main>
+  </div>
 
-    <!-- TABS VIEW: TOOLS (MANUAL HARDWARE REFERENCE v2.50) -->
-    <section id="view-tools" class="hidden space-y-3.5">
-      <div class="bg-[#111827] border border-slate-800 rounded-2xl p-4 space-y-3">
-        <h2 class="text-base font-extrabold text-white uppercase tracking-wide">Line 6 POD Go v2.50 Hardware DB</h2>
-        <p class="text-xs text-slate-400">
-          Base de datos extraída del Manual Oficial v2.50 inyectada en el motor de IA (Amps, Cabs, Mics, Distortion, Dynamics, Mod, Delay, Reverb, Wah & EQ).
-        </p>
-        <div id="hardwareDbSummary" class="grid grid-cols-2 gap-2.5 text-xs"></div>
+  <!-- VIEW: LIBRARY & ADMIN VAULT -->
+  <div id="viewLibrary" class="hidden flex-col flex-1 overflow-y-auto bg-brand-bg p-4 space-y-6 pb-12 hide-scrollbar">
+    <div class="space-y-3">
+      <h2 class="text-xs font-bold font-mono text-brand-accent uppercase flex items-center gap-1.5 border-b border-brand-border pb-1">
+        <i class="fa-solid fa-star"></i> Featured POD Go Presets
+      </h2>
+      <div class="grid grid-cols-1 gap-3" id="featuredList"></div>
+    </div>
+    <div class="space-y-3">
+      <h2 class="text-xs font-bold font-mono text-white uppercase flex items-center gap-1.5 border-b border-brand-border pb-1">
+        <i class="fa-solid fa-heart text-red-500"></i> My Local Favorites
+      </h2>
+      <div class="grid grid-cols-1 gap-3" id="favoritesList">
+        <p class="text-[11px] text-brand-muted italic">No favorites saved yet.</p>
       </div>
-    </section>
+    </div>
+  </div>
 
-  </main>
-
-  <!-- BOTTOM NAVIGATION BAR (Idéntica a la ergonomía MOOER GE300) -->
-  <nav class="fixed bottom-0 inset-x-0 z-40 bg-[#0b101b]/95 backdrop-blur-md border-t border-slate-800/80">
-    <div class="max-w-xl mx-auto grid grid-cols-4 py-2">
-      <button onclick="switchTab('tone')" id="tab-tone" class="flex flex-col items-center justify-center gap-1 text-red-500 font-semibold text-[11px]">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-        </svg>
-        <span>Tone AI</span>
-      </button>
-
-      <button onclick="switchTab('library')" id="tab-library" class="flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-slate-200 font-medium text-[11px]">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-        </svg>
-        <span>Library</span>
-      </button>
-
-      <a href="community.html" class="flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-slate-200 font-medium text-[11px]">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-        </svg>
-        <span>Community</span>
-      </a>
-
-      <button onclick="switchTab('tools')" id="tab-tools" class="flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-slate-200 font-medium text-[11px]">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-        </svg>
-        <span>Manual DB</span>
+  <!-- MODAL API KEY (SOLO VISIBLE PARA FAUSTO ADMIN) -->
+  <div id="apiKeyModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-brand-card border border-brand-border rounded-2xl p-4 w-full max-w-sm space-y-3">
+      <div class="flex items-center justify-between border-b border-brand-border pb-2">
+        <h3 class="font-bold text-xs text-brand-text flex items-center gap-1.5">
+          <i class="fa-solid fa-key text-brand-accent"></i> Master Gemini API Key (Cloud Sync)
+        </h3>
+        <button type="button" onclick="toggleApiKeyModal()" class="text-brand-muted hover:text-white cursor-pointer">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <p class="text-[11px] text-brand-muted leading-relaxed">
+        Saving this key syncs it to Firestore (`app_config/ai_engine`) so all user devices generate POD Go tones automatically.
+      </p>
+      <input type="password" id="apiKeyInput" placeholder="Paste key here..." class="w-full bg-brand-bg text-xs font-mono text-brand-text p-2.5 rounded-xl border border-brand-border focus:outline-none focus:border-brand-accent" />
+      <button type="button" onclick="saveApiKey()" class="w-full bg-brand-accent text-white font-bold text-xs py-2.5 rounded-xl hover:bg-brand-accentHover cursor-pointer">
+        Save & Sync to Cloud
       </button>
     </div>
-  </nav>
+  </div>
 
-  <!-- MODAL GEMINI API KEY -->
-  <div id="apiKeyModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-[#111827] border border-slate-800 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
-      <div class="flex items-center justify-between">
-        <h3 class="text-base font-extrabold text-white">Motor IA — Gemini API Key</h3>
-        <button onclick="closeApiKeyModal()" class="text-slate-400 hover:text-white text-sm">✕</button>
+  <!-- MODAL AI SAFETY BRAKE -->
+  <div id="confirmIaModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-brand-card border border-brand-border rounded-2xl p-5 w-full max-w-sm space-y-4 shadow-2xl">
+      <div class="flex items-center gap-3 border-b border-brand-border pb-3">
+        <div class="w-10 h-10 rounded-full bg-red-500/20 border border-red-500/30 flex items-center justify-center text-red-400 shrink-0">
+          <i class="fa-solid fa-cloud-arrow-down text-lg"></i>
+        </div>
+        <div>
+          <h3 class="font-bold text-sm text-white">New POD Go Tone Request</h3>
+          <p class="text-[10px] text-brand-muted" id="confirmModalSubtitle">Line 6 Cloud AI Studio</p>
+        </div>
       </div>
-      <p class="text-xs text-slate-400 leading-relaxed">
-        Pega tu Gemini API Key para generar cualquier canción del mundo en tiempo real con los modelos exactos del manual Line 6 POD Go v2.50. Todo preset generado quedará guardado en el Caché Inteligente.
+      <p class="text-xs text-brand-muted leading-relaxed">
+        This specific song or section is not in the global vault yet. Would you like the Cloud AI Engine to build it using the official Line 6 POD Go v2.50 Manual?
+        <br><br>
+        <span class="text-brand-accent font-semibold"><i class="fa-solid fa-bolt"></i> Flash Turbo Engine (2 to 4 sec).</span>
       </p>
-      <input
-        id="geminiApiKeyInput"
-        type="password"
-        placeholder="AIzaSy..."
-        class="w-full bg-[#090d16] border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-red-500"
-      />
-      <div class="flex justify-end gap-2">
-        <button onclick="clearApiKey()" class="px-3 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white border border-slate-800">
-          Borrar
+      <div class="flex gap-3 pt-2">
+        <button type="button" onclick="cancelIaGeneration()" class="flex-1 bg-brand-panel border border-brand-border text-white font-bold text-xs py-2.5 rounded-xl hover:bg-brand-border transition-colors">
+          Cancel
         </button>
-        <button onclick="saveApiKey()" class="px-4 py-2 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-500 text-white">
-          Guardar y Activar IA
+        <button type="button" onclick="confirmIaGeneration()" class="flex-1 bg-brand-accent text-white font-bold text-xs py-2.5 rounded-xl hover:bg-brand-accentHover transition-colors flex items-center justify-center gap-2">
+          <i class="fa-solid fa-wand-magic-sparkles"></i> Generate
         </button>
       </div>
     </div>
   </div>
 
-  <!-- ===================================================================== -->
-  <!-- CEREBRO LINE 6 POD GO v2.50 + SMART CLOUD CACHE + FUZZY ENGINE        -->
-  <!-- ===================================================================== -->
+  <!-- MODAL PAYWALL (MURO DE PAGO PRO) -->
+  <div id="paywallModal" class="hidden fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+    <div class="bg-brand-card border border-brand-accent/40 rounded-2xl p-6 w-full max-w-sm space-y-4 shadow-2xl text-center">
+      <div class="w-12 h-12 rounded-full bg-brand-accent/20 border border-brand-accent/40 flex items-center justify-center text-brand-accent mx-auto">
+        <i class="fa-solid fa-crown text-xl"></i>
+      </div>
+      <div>
+        <h3 class="font-bold text-base text-white">Free Trial Completed</h3>
+        <p class="text-xs text-brand-muted mt-1">You've used your 3 free AI tone generations.</p>
+      </div>
+      <p class="text-xs text-brand-text leading-relaxed bg-brand-bg/60 p-3 rounded-xl border border-brand-border/60">
+        Upgrade to <span class="text-brand-accent font-bold">POD GO AI Pro</span> for unlimited cloud tones, custom rectangular slider editing, and full library access.
+      </p>
+      <div class="space-y-2 pt-2">
+        <button type="button" onclick="window.location.href='premium.html'" class="w-full bg-brand-accent text-white font-bold text-xs py-3 rounded-xl hover:bg-brand-accentHover transition-colors cursor-pointer flex items-center justify-center gap-2">
+          <i class="fa-solid fa-bolt"></i> Upgrade to Pro (€4.99 / mo)
+        </button>
+        <button type="button" onclick="document.getElementById('paywallModal').classList.add('hidden')" class="w-full bg-transparent text-brand-muted hover:text-white text-xs py-2 transition-colors">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM NAVIGATION BAR -->
+  <nav class="bg-brand-panel border-t border-brand-border px-4 py-2 flex justify-around shrink-0 text-center z-20 w-full relative">
+    <button class="flex flex-col items-center gap-0.5 text-brand-accent w-16" id="navSearch" onclick="switchTab('search')">
+      <i class="fa-solid fa-sliders text-base"></i>
+      <span class="text-[9px] font-bold">Tone AI</span>
+    </button>
+
+    <button id="libraryNavBtn" class="flex flex-col items-center gap-0.5 text-brand-muted hover:text-brand-text transition-colors w-16" onclick="switchTab('library')">
+      <i class="fa-solid fa-book-bookmark text-base"></i>
+      <span class="text-[9px] font-bold">Library</span>
+    </button>
+
+    <a href="community.html" class="flex flex-col items-center gap-0.5 text-brand-muted hover:text-brand-text transition-colors w-16">
+      <i class="fa-solid fa-users text-base"></i>
+      <span class="text-[9px] font-bold">Community</span>
+    </a>
+
+    <button class="flex flex-col items-center gap-0.5 text-brand-muted hover:text-brand-text transition-colors w-16" onclick="openBpmTool()">
+      <i class="fa-solid fa-calculator text-base"></i>
+      <span class="text-[9px] font-bold">Tools</span>
+    </button>
+  </nav>
+
+  <!-- ========================================================================= -->
+  <!-- CEREBRO LINE 6 POD GO v2.50 + BARRAS LCD RECTANGULARES + BÓVEDA INTELIGENTE -->
+  <!-- ========================================================================= -->
   <script>
-    // 1. BASE DE DATOS OFICIAL EXTRAÍDA DEL MANUAL LINE 6 POD GO v2.50
-    const POD_GO_MANUAL_DB = {
-      amps: [
-        "WhoWatt 100 (Hiwatt DR-103)", "Soup Pro (Supro S6616)", "Stone Age 185 (Gibson EH-185)",
-        "Voltage Queen (Victoria Electro King)", "Tweed Blues Nrm (Fender Bassman)", "Tweed Blues Brt (Fender Bassman)",
-        "Fullerton Nrm (5C3 Tweed Deluxe)", "Fullerton Brt (5C3 Tweed Deluxe)", "Fullerton Jump",
-        "Grammatico Nrm", "Grammatico Brt", "Grammatico Jump", "US Small Tweed (Fender Champ)",
-        "US Princess (Fender Princeton Reverb)", "US Super Nrm (Fender Super Reverb)", "US Super Vib",
-        "US Deluxe Nrm (Fender Deluxe Reverb)", "US Deluxe Vib", "US Double Nrm (Fender Twin Reverb)",
-        "US Double Vib (Fender Twin Reverb)", "Mail Order Twin (Silvertone 1484)", "Divided Duo (÷13 JRT 9/15)",
-        "Interstate Zed (Dr Z Route 66)", "Derailed Ingrid (Trainwreck Express)", "Jazz Rivet 120 (Roland JC-120)",
-        "Essex A15 (Vox AC-15)", "Essex A30 (Vox AC-30 Top Boost)", "A30 Fawn Nrm", "A30 Fawn Brt",
-        "Matchstick Ch1 (Matchless DC30)", "Matchstick Ch2", "Matchstick Jump", "Mandarin 80 (Orange OR80)",
-        "Brit J45 Nrm (Marshall JTM-45)", "Brit J45 Brt", "Brit Trem Nrm (JTM-50)", "Brit Trem Brt", "Brit Trem Jump",
-        "Brit Plexi Nrm (Marshall Super Lead 100)", "Brit Plexi Brt", "Brit Plexi Jump", "Brit P75 Nrm (Park 75)",
-        "Brit P75 Brt", "Brit 2203 (Marshall JCM-800 100W)", "Brit 2204 (Marshall JCM-800 50W)",
-        "Placater Clean (Friedman BE-100)", "Placater Dirty (Friedman BE/HBE)", "Cartographer",
-        "German Xtra Blue (Bogner Ecstasy Blue)", "German Xtra Red (Bogner Ecstasy Red)", "German Mahadeva (Bogner Shiva)",
-        "German Ubersonic (Bogner Überschall)", "Cali Texas Ch 1 (MESA Lone Star Clean)", "Cali Texas Ch 2 (MESA Lone Star Drive)",
-        "Cali IV Rhythm 1 (MESA Mark IV Ch I)", "Cali IV Rhythm 2 (MESA Mark IV Ch II)", "Cali IV Lead (MESA Mark IV Lead)",
-        "Cali Rectifire (MESA Dual Rectifier)", "Archetype Clean (PRS Archon Clean)", "Archetype Lead (PRS Archon Lead)",
-        "ANGL Meteor (ENGL Fireball 100)", "Solo Lead Clean (Soldano SLO-100)", "Solo Lead Crunch (Soldano SLO-100)",
-        "Solo Lead OD (Soldano SLO-100)", "PV Panama (Peavey 5150)", "Revv Gen Purple (Revv Generator 120)",
-        "Revv Gen Red (Revv Generator 120)", "Das Benzin Mega (Diezel VH4)", "Das Benzin Lead (Diezel VH4)",
-        "Line 6 Clarity", "Line 6 Aristocrat", "Line 6 Carillon", "Line 6 Voltage", "Line 6 Kinetic",
-        "Line 6 Oblivion", "Line 6 Elektrik", "Line 6 Doom", "Line 6 Epic", "Line 6 2204 Mod",
-        "Line 6 Fatality", "Line 6 Litigator", "Line 6 Badonk"
+    const BLOCK_ORDER = ["WAH", "PITCH", "DYN", "DIST", "AMP", "CAB", "EQ", "MOD", "DELAY", "REVERB"];
+
+    // Colores Oficiales de Bloques en la Pantalla LCD de Line 6 POD Go
+    const POD_BLOCK_COLORS = {
+      WAH:    { hex: "#a855f7", label: "Wah",        bgHeader: "rgba(168, 85, 247, 0.16)" },
+      PITCH:  { hex: "#a855f7", label: "Pitch",      bgHeader: "rgba(168, 85, 247, 0.16)" },
+      DYN:    { hex: "#eab308", label: "Dynamics",   bgHeader: "rgba(234, 179, 8, 0.16)" },
+      DIST:   { hex: "#f97316", label: "Distortion", bgHeader: "rgba(249, 115, 22, 0.16)" },
+      AMP:    { hex: "#ef4444", label: "Amp",        bgHeader: "rgba(239, 68, 68, 0.20)" },
+      CAB:    { hex: "#f43f5e", label: "Cab",        bgHeader: "rgba(244, 63, 94, 0.18)" },
+      EQ:     { hex: "#eab308", label: "EQ",         bgHeader: "rgba(234, 179, 8, 0.16)" },
+      MOD:    { hex: "#3b82f6", label: "Modulation", bgHeader: "rgba(59, 130, 246, 0.16)" },
+      DELAY:  { hex: "#22c55e", label: "Delay",      bgHeader: "rgba(34, 197, 94, 0.16)" },
+      REVERB: { hex: "#fb7185", label: "Reverb",     bgHeader: "rgba(251, 113, 133, 0.16)" }
+    };
+
+    // CATÁLOGO COMPLETO EXTRAÍDO DEL MANUAL LINE 6 POD GO v2.50
+    const PODGO_CATALOG = {
+      AMP: [
+        "WhoWatt 100", "Soup Pro", "Stone Age 185", "Voltage Queen", "Tweed Blues Nrm", "Tweed Blues Brt",
+        "Fullerton Nrm", "Fullerton Brt", "Fullerton Jump", "Grammatico Nrm", "Grammatico Brt", "Grammatico Jump",
+        "US Small Tweed", "US Princess", "US Super Nrm", "US Super Vib", "US Deluxe Nrm", "US Deluxe Vib",
+        "US Double Nrm", "US Double Vib", "Mail Order Twin", "Divided Duo", "Interstate Zed", "Derailed Ingrid",
+        "Jazz Rivet 120", "Essex A15", "Essex A30", "A30 Fawn Nrm", "A30 Fawn Brt",
+        "Matchstick Ch1", "Matchstick Ch2", "Matchstick Jump", "Mandarin 80",
+        "Brit J45 Nrm", "Brit J45 Brt", "Brit Trem Nrm", "Brit Trem Brt", "Brit Trem Jump",
+        "Brit Plexi Nrm", "Brit Plexi Brt", "Brit Plexi Jump", "Brit P75 Nrm", "Brit P75 Brt",
+        "Brit 2203", "Brit 2204", "Placater Clean", "Placater Dirty", "Cartographer",
+        "German Xtra Blue", "German Xtra Red", "German Mahadeva", "German Ubersonic",
+        "Cali Texas Ch 1", "Cali Texas Ch 2", "Cali IV Rhythm 1", "Cali IV Rhythm 2", "Cali IV Lead",
+        "Cali Rectifire", "Archetype Clean", "Archetype Lead", "ANGL Meteor",
+        "Solo Lead Clean", "Solo Lead Crunch", "Solo Lead OD", "PV Panama",
+        "Revv Gen Purple", "Revv Gen Red", "Das Benzin Mega", "Das Benzin Lead",
+        "Line 6 Clarity", "Line 6 Aristocrat", "Line 6 Carillon", "Line 6 Voltage",
+        "Line 6 Kinetic", "Line 6 Oblivion", "Line 6 Elektrik", "Line 6 Doom",
+        "Line 6 Epic", "Line 6 2204 Mod", "Line 6 Fatality", "Line 6 Litigator", "Line 6 Badonk"
       ],
-      cabs: [
+      CAB: [
         "Soup Pro Ellipse", "1x8 Small Tweed", "1x10 US Princess", "1x12 Fullerton", "1x12 Grammatico",
         "1x12 US Deluxe", "1x12 Open Cast", "1x12 Open Cream", "1x12 Cali EXT", "1x12 Cali IV",
-        "1x12 Blue Bell (Vox AC-15)", "2x12 Blue Bell (Vox AC-30)", "2x12 Silver Bell (Vox AC-30TB)",
-        "2x12 Match H30", "2x12 Match G25", "2x12 Double C12N (Fender Twin)", "2x12 Interstate (Dr. Z V30)",
-        "2x12 Jazz Rivet (Roland JC-120)", "2x12 Mail C12Q", "2x12 Mandarin30 (Orange V30)",
-        "4x10 Tweed P10R", "4x10 US Super", "4x12 WhoWatt (Hiwatt Fane)", "4x12 Greenback20",
-        "4x12 Greenback25 (Marshall G12M25)", "4x12 Greenback30", "4x12 1960A T75 (Marshall G12T-75)",
-        "4x12 Blackback30", "4x12 Brit V30 (Marshall 1960AV)", "4x12 Cali V30 (MESA 4FB V30)",
+        "1x12 Blue Bell", "2x12 Blue Bell", "2x12 Silver Bell", "2x12 Match H30", "2x12 Match G25",
+        "2x12 Double C12N", "2x12 Interstate", "2x12 Jazz Rivet", "2x12 Mail C12Q", "2x12 Mandarin30",
+        "4x10 Tweed P10R", "4x10 US Super", "4x12 WhoWatt", "4x12 Greenback20", "4x12 Greenback25",
+        "4x12 Greenback30", "4x12 1960A T75", "4x12 Blackback30", "4x12 Brit V30", "4x12 Cali V30",
         "4x12 Mandarin EM", "4x12 MOO)))N T75", "4x12 Cartog Guv", "4x12 Cartog C90",
-        "4x12 Uber T75", "4x12 Uber V30", "4x12 XXL V30 (ENGL)", "4x12 SoloLead EM"
+        "4x12 Uber T75", "4x12 Uber V30", "4x12 XXL V30", "4x12 SoloLead EM"
       ],
-      mics: [
-        "57 Dynamic (Shure SM57)", "421 Dynamic (MD 421-U)", "7 Dynamic (Shure SM7B)",
-        "906 Dynamic (Sennheiser e906)", "30 Dynamic (Heil PR 30)", "121 Ribbon (Royer R-121)",
-        "160 Ribbon (Beyerdynamic M 160)", "4038 Ribbon (Coles 4038)", "84 Ribbon (AEA R84)",
-        "414 Cond (AKG C414)", "47 Cond FET (Neumann U47)", "67 Cond (Neumann U67)"
+      MIC: [
+        "57 Dynamic", "421 Dynamic", "7 Dynamic", "906 Dynamic", "30 Dynamic",
+        "121 Ribbon", "160 Ribbon", "4038 Ribbon", "84 Ribbon", "414 Cond", "47 Cond FET", "67 Cond"
       ],
-      distortions: [
-        "Kinky Boost (EP Booster)", "Deranged Master (Rangemaster)", "Minotaur (Klon Centaur)",
-        "Teemah! (Timmy OD)", "Heir Apparent (Prince of Tone)", "Alpaca Rouge", "Compulsive Drive (Fulltone OCD)",
-        "Dhyana Drive (Zendrive)", "Horizon Drive (Precision Drive)", "Valve Driver (Tube Driver)",
-        "Top Secret OD (DOD 250)", "Scream 808 (Ibanez TS808)", "Pillars (EQD Plumes)", "Hedgehog D9 (Maxon SD9)",
-        "Stupor OD (BOSS SD-1)", "Deez One Vintage (BOSS DS-1)", "Deez One Mod (DS-1 Keeley)",
-        "Ratatoullie Dist (Pro Co RAT)", "Vermin Dist (RAT)", "Swedish Chainsaw (BOSS HM-2)",
-        "Arbitrator Fuzz (Fuzz Face)", "Bighorn Fuzz ('73 Ram's Head Big Muff)", "Triangle Fuzz (Big Muff Pi)",
-        "Dark Dove Fuzz (Russian Big Muff)", "Industrial Fuzz (Fuzz Factory)", "Tycoctavia Fuzz (Octavia)",
-        "Heavy Dist (Metal Zone)", "Killer Z (MT-2)", "Screamer"
+      DIST: [
+        "Kinky Boost", "Deranged Master", "Minotaur", "Teemah!", "Heir Apparent", "Alpaca Rouge",
+        "Compulsive Drive", "Dhyana Drive", "Horizon Drive", "Valve Driver", "Top Secret OD",
+        "Scream 808", "Pillars", "Hedgehog D9", "Stupor OD", "Deez One Vintage", "Deez One Mod",
+        "Ratatoullie Dist", "Vermin Dist", "KWB", "Swedish Chainsaw", "Arbitrator Fuzz",
+        "Pocket Fuzz", "Bighorn Fuzz", "Triangle Fuzz", "Dark Dove Fuzz", "Industrial Fuzz",
+        "Tycoctavia Fuzz", "Heavy Dist", "Killer Z", "Screamer", "Tube Drive", "Classic Dist"
       ],
-      dynamics: [
-        "Deluxe Comp", "Red Squeeze (MXR Dyna Comp)", "Kinky Comp (Xotic SP)", "LA Studio Comp (Teletronix LA-2A)",
-        "Rochester Comp", "3-Band Comp", "Noise Gate", "Hard Gate", "Horizon Gate", "Autoswell", "Boost Comp"
+      DYN: [
+        "Deluxe Comp", "Red Squeeze", "Kinky Comp", "Ampeg Opto Comp", "Rochester Comp",
+        "LA Studio Comp", "3-Band Comp", "Noise Gate", "Hard Gate", "Horizon Gate", "Autoswell", "Boost Comp"
       ],
-      modulations: [
-        "Optical Trem (Fender Tremolo)", "60s Bias Trem (Vox Tremolo)", "Script Mod Phase (MXR Phase 90)",
-        "Pebble Phaser (Small Stone)", "Ubiquitous Vibe (Shin-ei Uni-Vibe)", "Deluxe Phaser",
-        "Gray Flanger (MXR 117)", "Harmonic Flanger", "Courtesan Flange (Electric Mistress)",
-        "Chorus", "70s Chorus (BOSS CE-1)", "PlastiChorus", "Trinity Chorus (Tri-Stereo Chorus)",
-        "Bubble Vibrato (VB-2)", "Vibe Rotary", "122 Rotary (Leslie 122)", "145 Rotary (Leslie 145)",
-        "Double Take", "Dimension (Roland Dimension D)", "Analog Chorus"
+      EQ: [
+        "Simple EQ", "Low and High Cut", "Low/High Shelf", "Parametric", "Tilt", "10 Band Graphic", "Cali Q Graphic"
       ],
-      delays: [
-        "Simple Delay", "Mod/Chorus Echo", "Dual Delay", "Ping Pong", "Sweep Echo",
-        "Ducked Delay (TC 2290)", "Reverse Delay", "Vintage Digital", "Vintage Swell", "Pitch Echo",
-        "Transistor Tape (Maestro Echoplex EP-3)", "Harmony Delay", "Bucket Brigade (BOSS DM-2)",
-        "Adriatic Delay", "Elephant Man (Deluxe Memory Man)", "Multi-Head (Roland Space Echo)"
+      MOD: [
+        "Optical Trem", "60s Bias Trem", "Tremolo/Autopan", "Harmonic Tremolo", "Script Mod Phase",
+        "Pebble Phaser", "Ubiquitous Vibe", "FlexoVibe", "Deluxe Phaser", "Gray Flanger",
+        "Harmonic Flanger", "Courtesan Flange", "Chorus", "70s Chorus", "PlastiChorus",
+        "Trinity Chorus", "4-Voice Chorus", "Bubble Vibrato", "Vibe Rotary", "122 Rotary", "145 Rotary", "Double Take"
       ],
-      reverbs: [
+      DELAY: [
+        "Simple Delay", "Mod/Chorus Echo", "Dual Delay", "Multitap 4", "Multitap 6", "Ping Pong",
+        "Sweep Echo", "Ducked Delay", "Reverse Delay", "Vintage Digital", "Vintage Swell",
+        "Pitch Echo", "Transistor Tape", "Harmony Delay", "Bucket Brigade", "Adriatic Delay", "Elephant Man"
+      ],
+      REVERB: [
         "Dynamic Hall", "Dynamic Plate", "Dynamic Room", "Dynamic Ambience", "Shimmer",
         "Hot Springs", "Glitz", "Ganymede", "Searchlights", "Plateaux", "Double Tank",
         "Plate", "Room", "Chamber", "Hall", "'63 Spring", "Spring", "Particle Verb"
       ],
-      eqs: [
-        "Simple EQ", "Low and High Cut", "Low/High Shelf", "Parametric", "Tilt",
-        "10 Band Graphic (MXR 10-Band)", "Cali Q Graphic (MESA Mark IV 5-Band)"
+      WAH: [
+        "UK Wah 846", "Teardrop 310", "Fassel", "Weeper", "Chrome", "Chrome Custom", "Throaty", "Vetta Wah", "Colorful"
       ],
-      wahsAndPitch: [
-        "UK Wah 846 (Vox V846)", "Teardrop 310 (Cry Baby Fasel 310)", "Fassel (Cry Baby Super)",
-        "Chrome (Vox V847)", "Chrome Custom", "Throaty (Real McCoy)", "Vetta Wah",
-        "Pitch Wham (Digitech Whammy)", "Twin Harmony (Eventide H3000)", "Simple Pitch", "Dual Pitch", "Boctaver (BOSS OC-2)"
+      PITCH: [
+        "Pitch Wham", "Twin Harmony", "Simple Pitch", "Dual Pitch", "Boctaver", "Smart Harmony"
       ]
     };
 
-    // 2. PRESETS SEMILLA VERIFICADOS (PARA PRUEBA INMEDIATA DEL CACHÉ DIFUSO + SECCIONES)
-    const INITIAL_VERIFIED_PRESETS = [
-      {
-        id: "soda-stereo-musica-ligera-main",
-        slot: "01A",
-        title: "SODA STEREO - MÚSICA LIGERA",
-        artist: "Soda Stereo",
-        song: "De Música Ligera",
+    // PRESETS UNIVERSALES VERIFICADOS (CON SECCIÓN DIFERENCIADA SOLO vs INTRO)
+    const UNIVERSAL_PRESETS = {
+      "podgo_univ_soda_ligera": {
+        id: "podgo_univ_soda_ligera",
+        title: "SODA STEREO - DE MÚSICA LIGERA",
         section: "main",
-        keywords: ["soda stereo", "de musica ligera", "musica ligera", "cerati", "gustavo cerati"],
-        description: "Bright Roland JC-120 style clean/crunch tone with punchy compression and 80s analog chorus.",
-        pickups: "Bridge",
-        inputGate: { gate: "On", threshold: "-48.0dB", decay: "35%" },
-        chain: [
-          {
-            type: "DYN",
-            badgeColor: "yellow",
-            model: "Red Squeeze",
-            params: [
-              { name: "SENSITIVITY", val: "6.2", pct: 62 },
-              { name: "MIX", val: "80%", pct: 80 },
-              { name: "LEVEL", val: "+1.5dB", pct: 60 }
-            ]
-          },
-          {
-            type: "DIST",
-            badgeColor: "orange",
-            model: "Teemah!",
-            params: [
-              { name: "GAIN", val: "2.8", pct: 28 },
-              { name: "BASS", val: "4.5", pct: 45 },
-              { name: "TREBLE", val: "6.5", pct: 65 },
-              { name: "LEVEL", val: "7.0", pct: 70 }
-            ]
-          },
-          {
-            type: "AMP",
-            badgeColor: "red",
-            model: "Jazz Rivet 120",
-            params: [
-              { name: "DRIVE", val: "3.0", pct: 30 },
-              { name: "BASS", val: "5.2", pct: 52 },
-              { name: "MID", val: "5.8", pct: 58 },
-              { name: "TREBLE", val: "7.2", pct: 72 },
-              { name: "PRESENCE", val: "6.0", pct: 60 },
-              { name: "CH VOL", val: "8.0", pct: 80 }
-            ]
-          },
-          {
-            type: "CAB",
-            badgeColor: "red",
-            model: "2x12 Jazz Rivet",
-            params: [
-              { name: "MIC", val: "57 Dynamic", pct: 100 },
-              { name: "DISTANCE", val: "5.0cm", pct: 25 },
-              { name: "LOW CUT", val: "80Hz", pct: 30 },
-              { name: "HIGH CUT", val: "8.5kHz", pct: 75 }
-            ]
-          },
-          {
-            type: "MOD",
-            badgeColor: "blue",
-            model: "70s Chorus",
-            params: [
-              { name: "SPEED", val: "3.5", pct: 35 },
-              { name: "DEPTH", val: "5.5", pct: 55 },
-              { name: "MIX", val: "45%", pct: 45 }
-            ]
-          },
-          {
-            type: "REV",
-            badgeColor: "orange",
-            model: "Dynamic Hall",
-            params: [
-              { name: "DECAY", val: "2.8s", pct: 45 },
-              { name: "PREDELAY", val: "25ms", pct: 30 },
-              { name: "MIX", val: "28%", pct: 28 }
-            ]
-          }
-        ],
-        assignments: {
-          footswitches: "FS1: Red Squeeze | FS2: Teemah! | FS3: 70s Chorus | FS4: Dynamic Hall",
-          expression: "EXP 1: Chrome Wah | EXP 2: Volume Pedal",
-          snapshots: "Snap 1: Riff Clean+Chorus | Snap 2: Drive Verse | Snap 3: Lead Boost | Snap 4: Outro"
-        }
+        bank: "01A",
+        desc: "Gustavo Cerati iconic Roland JC-120 clean/crunch rig with punchy Dyna Comp, Timmy OD, 70s Chorus and Hall Reverb.",
+        pickup: "Bridge",
+        inputGate: "-48.0dB / 35%",
+        ctrls: ["FS1: Red Squeeze", "FS2: Teemah!", "FS3: 70s Chorus", "Snap 1: Riff | Snap 2: Drive | Snap 3: Solo"],
+        rating: 5.0,
+        votesCount: 12,
+        isFav: false,
+        blocks: [
+          { type: "DYN", model: "Red Squeeze", knobs: { "Sens": 6.2, "Mix": "80%", "Level": "+1.5dB" } },
+          { type: "DIST", model: "Teemah!", knobs: { "Gain": 2.8, "Bass": 4.5, "Treble": 6.5, "Level": 7.0 } },
+          { type: "AMP", model: "Jazz Rivet 120", knobs: { "Drive": 3.0, "Bass": 5.2, "Mid": 5.8, "Treble": 7.2, "Presence": 6.0 } },
+          { type: "CAB", model: "2x12 Jazz Rivet", knobs: { "Mic": "57 Dynamic", "Distance": "5.0cm", "Low Cut": "80Hz", "High Cut": "8.5kHz" } },
+          { type: "MOD", model: "70s Chorus", knobs: { "Speed": 3.5, "Depth": 5.5, "Mix": "45%" } },
+          { type: "REVERB", model: "Dynamic Hall", knobs: { "Decay": 2.8, "Predelay": "25ms", "Mix": "28%" } }
+        ]
       },
-      {
-        id: "audioslave-like-a-stone-solo",
-        slot: "01B",
+      "podgo_univ_audioslave_stone_solo": {
+        id: "podgo_univ_audioslave_stone_solo",
         title: "AUDIOSLAVE - LIKE A STONE (SOLO)",
-        artist: "Audioslave",
-        song: "Like a Stone",
         section: "solo",
-        keywords: ["audioslave", "like a stone", "like stone", "tom morello", "solo"],
-        description: "Tom Morello iconic JCM-800 Lead tone with +2 Octaves Whammy on EXP 1 and dotted-eighth delay.",
-        pickups: "Neck (Single Coil / Humbucker)",
-        inputGate: { gate: "On", threshold: "-42.0dB", decay: "25%" },
-        chain: [
-          {
-            type: "PITCH",
-            badgeColor: "purple",
-            model: "Pitch Wham",
-            params: [
-              { name: "HEEL", val: "0", pct: 50 },
-              { name: "TOE", val: "+2 Oct", pct: 100 },
-              { name: "MIX", val: "100%", pct: 100 }
-            ]
-          },
-          {
-            type: "AMP",
-            badgeColor: "red",
-            model: "Brit 2203",
-            params: [
-              { name: "DRIVE", val: "7.2", pct: 72 },
-              { name: "BASS", val: "6.5", pct: 65 },
-              { name: "MID", val: "7.5", pct: 75 },
-              { name: "TREBLE", val: "6.8", pct: 68 },
-              { name: "PRESENCE", val: "6.2", pct: 62 },
-              { name: "MASTER", val: "5.5", pct: 55 }
-            ]
-          },
-          {
-            type: "CAB",
-            badgeColor: "red",
-            model: "4x12 Greenback25",
-            params: [
-              { name: "MIC", val: "57 Dynamic", pct: 100 },
-              { name: "POSITION", val: "Cap Edge", pct: 40 },
-              { name: "DISTANCE", val: "3.5cm", pct: 20 },
-              { name: "HIGH CUT", val: "7.8kHz", pct: 70 }
-            ]
-          },
-          {
-            type: "EQ",
-            badgeColor: "yellow",
-            model: "10 Band Graphic",
-            params: [
-              { name: "500Hz", val: "+2.0dB", pct: 65 },
-              { name: "1kHz", val: "+3.2dB", pct: 75 },
-              { name: "LEVEL", val: "+1.5dB", pct: 62 }
-            ]
-          },
-          {
-            type: "DELAY",
-            badgeColor: "green",
-            model: "Vintage Digital",
-            params: [
-              { name: "TIME", val: "440ms", pct: 55 },
-              { name: "FEEDBACK", val: "38%", pct: 38 },
-              { name: "MIX", val: "32%", pct: 32 }
-            ]
-          },
-          {
-            type: "REV",
-            badgeColor: "orange",
-            model: "Dynamic Plate",
-            params: [
-              { name: "DECAY", val: "2.2s", pct: 40 },
-              { name: "PREDELAY", val: "18ms", pct: 25 },
-              { name: "MIX", val: "22%", pct: 22 }
-            ]
-          }
-        ],
-        assignments: {
-          footswitches: "FS1: Pitch Wham | FS2: 10 Band Graphic | FS3: Vintage Digital",
-          expression: "EXP 1: Pitch Wham (0 to +2 Oct) | EXP 2: Volume Pedal",
-          snapshots: "Snap 1: Solo Whammy Active | Snap 2: Solo Dry | Snap 3: Heavy Chorus | Snap 4: Clean"
-        }
+        bank: "01B",
+        desc: "Tom Morello screaming JCM-800 Solo tone with Pitch Wham (+2 Octaves) assigned to EXP 1 and Digital Delay.",
+        pickup: "Neck",
+        inputGate: "-42.0dB / 25%",
+        ctrls: ["EXP 1: Pitch Wham (0 to +2 Oct)", "FS1: Pitch Wham", "FS2: Vintage Digital", "Snap 1: Solo Whammy"],
+        rating: 5.0,
+        votesCount: 18,
+        isFav: false,
+        blocks: [
+          { type: "PITCH", model: "Pitch Wham", knobs: { "Heel": 0.0, "Toe": "+2 Oct", "Mix": "100%" } },
+          { type: "AMP", model: "Brit 2203", knobs: { "Drive": 7.2, "Bass": 6.5, "Mid": 7.5, "Treble": 6.8, "Presence": 6.2 } },
+          { type: "CAB", model: "4x12 Greenback25", knobs: { "Mic": "57 Dynamic", "Distance": "3.5cm", "Low Cut": "85Hz", "High Cut": "7.8kHz" } },
+          { type: "EQ", model: "10 Band Graphic", knobs: { "500Hz": "+2.0dB", "1kHz": "+3.2dB", "Level": "+1.5dB" } },
+          { type: "DELAY", model: "Vintage Digital", knobs: { "Time": "440ms", "Feedback": "38%", "Mix": "32%" } },
+          { type: "REVERB", model: "Dynamic Plate", knobs: { "Decay": 2.2, "Predelay": "18ms", "Mix": "22%" } }
+        ]
       },
-      {
-        id: "audioslave-like-a-stone-intro",
-        slot: "01C",
+      "podgo_univ_audioslave_stone_intro": {
+        id: "podgo_univ_audioslave_stone_intro",
         title: "AUDIOSLAVE - LIKE A STONE (INTRO)",
-        artist: "Audioslave",
-        song: "Like a Stone",
         section: "intro",
-        keywords: ["audioslave", "like a stone", "like stone", "tom morello", "intro", "clean", "verse"],
-        description: "Hypnotic clean arpeggio tone with warm Optical Tremolo pulse and subtle slap ambient delay.",
-        pickups: "Neck",
-        inputGate: { gate: "On", threshold: "-52.0dB", decay: "40%" },
-        chain: [
-          {
-            type: "DYN",
-            badgeColor: "yellow",
-            model: "LA Studio Comp",
-            params: [
-              { name: "PEAK RED", val: "5.0", pct: 50 },
-              { name: "GAIN", val: "5.5", pct: 55 },
-              { name: "MIX", val: "75%", pct: 75 }
-            ]
-          },
-          {
-            type: "AMP",
-            badgeColor: "red",
-            model: "Brit J45 Nrm",
-            params: [
-              { name: "DRIVE", val: "2.4", pct: 24 },
-              { name: "BASS", val: "5.0", pct: 50 },
-              { name: "MID", val: "6.0", pct: 60 },
-              { name: "TREBLE", val: "6.4", pct: 64 },
-              { name: "PRESENCE", val: "5.5", pct: 55 },
-              { name: "CH VOL", val: "8.2", pct: 82 }
-            ]
-          },
-          {
-            type: "CAB",
-            badgeColor: "red",
-            model: "4x12 Greenback25",
-            params: [
-              { name: "MIC", val: "121 Ribbon", pct: 100 },
-              { name: "DISTANCE", val: "6.0cm", pct: 35 },
-              { name: "LOW CUT", val: "90Hz", pct: 35 },
-              { name: "HIGH CUT", val: "8.0kHz", pct: 72 }
-            ]
-          },
-          {
-            type: "MOD",
-            badgeColor: "blue",
-            model: "Optical Trem",
-            params: [
-              { name: "SPEED", val: "1/8", pct: 50 },
-              { name: "INTENSITY", val: "42%", pct: 42 },
-              { name: "LEVEL", val: "+0.5dB", pct: 55 }
-            ]
-          },
-          {
-            type: "DELAY",
-            badgeColor: "green",
-            model: "Transistor Tape",
-            params: [
-              { name: "TIME", val: "280ms", pct: 35 },
-              { name: "FEEDBACK", val: "22%", pct: 22 },
-              { name: "MIX", val: "20%", pct: 20 }
-            ]
-          },
-          {
-            type: "REV",
-            badgeColor: "orange",
-            model: "Dynamic Room",
-            params: [
-              { name: "DECAY", val: "1.9s", pct: 35 },
-              { name: "PREDELAY", val: "15ms", pct: 20 },
-              { name: "MIX", val: "25%", pct: 25 }
-            ]
-          }
-        ],
-        assignments: {
-          footswitches: "FS1: Optical Trem | FS2: Transistor Tape | FS3: LA Studio Comp",
-          expression: "EXP 1: Optical Trem Intensity | EXP 2: Volume Pedal",
-          snapshots: "Snap 1: Intro Arpeggio | Snap 2: Verse Clean | Snap 3: Pre-Chorus | Snap 4: Chorus Crunch"
-        }
-      },
-      {
-        id: "metallica-master-of-puppets-main",
-        slot: "01D",
-        title: "METALLICA - MASTER OF PUPPETS",
-        artist: "Metallica",
-        song: "Master of Puppets",
-        section: "main",
-        keywords: ["metallica", "master of puppets", "pastor of muppets", "hetfield", "kirk hammett"],
-        description: "Tight MESA/Boogie Mark IV thrash metal chug with classic V-curve 5-band Cali Q Graphic EQ.",
-        pickups: "Bridge (Humbucker)",
-        inputGate: { gate: "On", threshold: "-36.0dB", decay: "15%" },
-        chain: [
-          {
-            type: "DIST",
-            badgeColor: "orange",
-            model: "Scream 808",
-            params: [
-              { name: "GAIN", val: "0.8", pct: 8 },
-              { name: "TONE", val: "6.8", pct: 68 },
-              { name: "LEVEL", val: "9.5", pct: 95 }
-            ]
-          },
-          {
-            type: "AMP",
-            badgeColor: "red",
-            model: "Cali IV Lead",
-            params: [
-              { name: "DRIVE", val: "7.8", pct: 78 },
-              { name: "BASS", val: "2.5", pct: 25 },
-              { name: "MID", val: "3.0", pct: 30 },
-              { name: "TREBLE", val: "8.2", pct: 82 },
-              { name: "PRESENCE", val: "7.0", pct: 70 },
-              { name: "SAG", val: "1.5", pct: 15 }
-            ]
-          },
-          {
-            type: "CAB",
-            badgeColor: "red",
-            model: "4x12 Cali V30",
-            params: [
-              { name: "MIC", val: "57 Dynamic", pct: 100 },
-              { name: "DISTANCE", val: "2.5cm", pct: 15 },
-              { name: "LOW CUT", val: "95Hz", pct: 40 },
-              { name: "HIGH CUT", val: "7.5kHz", pct: 68 }
-            ]
-          },
-          {
-            type: "EQ",
-            badgeColor: "yellow",
-            model: "Cali Q Graphic",
-            params: [
-              { name: "80Hz", val: "+5.5dB", pct: 85 },
-              { name: "750Hz", val: "-6.5dB", pct: 15 },
-              { name: "6600Hz", val: "+4.5dB", pct: 80 }
-            ]
-          },
-          {
-            type: "REV",
-            badgeColor: "orange",
-            model: "Dynamic Room",
-            params: [
-              { name: "DECAY", val: "1.2s", pct: 20 },
-              { name: "PREDELAY", val: "10ms", pct: 15 },
-              { name: "MIX", val: "12%", pct: 12 }
-            ]
-          }
-        ],
-        assignments: {
-          footswitches: "FS1: Scream 808 | FS2: Cali Q Graphic | FS3: Dynamic Room",
-          expression: "EXP 1: Teardrop 310 Wah | EXP 2: Volume Pedal",
-          snapshots: "Snap 1: Tight Thrash Rhythm | Snap 2: Interlude Clean | Snap 3: Kirk Solo Wah | Snap 4: Harmony Lead"
-        }
+        bank: "01C",
+        desc: "Hypnotic clean neck-pickup arpeggio with Optical Tremolo pulse and subtle Transistor Tape slapback.",
+        pickup: "Neck",
+        inputGate: "-52.0dB / 40%",
+        ctrls: ["FS1: Optical Trem", "FS2: Transistor Tape", "Snap 1: Intro Clean | Snap 2: Verse"],
+        rating: 4.9,
+        votesCount: 9,
+        isFav: false,
+        blocks: [
+          { type: "DYN", model: "LA Studio Comp", knobs: { "Peak Red": 5.0, "Gain": 5.5, "Mix": "75%" } },
+          { type: "AMP", model: "Brit J45 Nrm", knobs: { "Drive": 2.4, "Bass": 5.0, "Mid": 6.0, "Treble": 6.4, "Presence": 5.5 } },
+          { type: "CAB", model: "4x12 Greenback25", knobs: { "Mic": "121 Ribbon", "Distance": "6.0cm", "Low Cut": "90Hz", "High Cut": "8.0kHz" } },
+          { type: "MOD", model: "Optical Trem", knobs: { "Speed": 4.2, "Intensity": "42%", "Level": "+0.5dB" } },
+          { type: "DELAY", model: "Transistor Tape", knobs: { "Time": "280ms", "Feedback": "22%", "Mix": "20%" } },
+          { type: "REVERB", model: "Dynamic Room", knobs: { "Decay": 1.9, "Predelay": "15ms", "Mix": "25%" } }
+        ]
       }
-    ];
-
-    // 3. GESTIÓN DEL CACHÉ INTELIGENTE (LOCALSTORAGE + HOOK PARA FIREBASE EN PASO 4)
-    const CACHE_STORAGE_KEY = "podgo_smart_preset_cache_v1";
-    const API_KEY_STORAGE = "podgo_gemini_api_key";
-
-    function loadSmartCache() {
-      try {
-        const raw = localStorage.getItem(CACHE_STORAGE_KEY);
-        if (!raw) {
-          localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(INITIAL_VERIFIED_PRESETS));
-          return [...INITIAL_VERIFIED_PRESETS];
-        }
-        const parsed = JSON.parse(raw);
-        // Asegurar que los presets semilla estén siempre presentes
-        const existingIds = new Set(parsed.map(p => p.id));
-        INITIAL_VERIFIED_PRESETS.forEach(seed => {
-          if (!existingIds.has(seed.id)) parsed.push(seed);
-        });
-        return parsed;
-      } catch (e) {
-        return [...INITIAL_VERIFIED_PRESETS];
-      }
-    }
-
-    function savePresetToSmartCache(preset) {
-      const cache = loadSmartCache();
-      const idx = cache.findIndex(p => p.id === preset.id);
-      if (idx >= 0) {
-        cache[idx] = preset;
-      } else {
-        cache.unshift(preset);
-      }
-      localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(cache));
-      renderLibraryList();
-    }
-
-    // 4. ALGORITMO DE DETECCIÓN DE SECCIÓN + DISTANCIA ORTOGRÁFICA (LEVENSHTEIN)
-    const SECTION_ALIASES = {
-      solo: ["solo", "solos", "lead", "punteo"],
-      intro: ["intro", "introduccion", "opening", "arpegio", "arpeggio"],
-      rhythm: ["rhythm", "ritmo", "ritmica", "verse", "estrofa", "verso"],
-      chorus: ["chorus", "coro", "estribillo"],
-      clean: ["clean", "limpio", "acustico", "acoustic"],
-      outro: ["outro", "final", "ending"]
     };
 
-    function normalizeText(str) {
-      return (str || "")
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-z0-9\s]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-    }
+    let currentCacheKey = 'podgo_univ_soda_ligera';
+    let isEditMode = false;
+    let pendingSearchQuery = '';
+    let pendingSearchSection = 'main';
 
-    function parseQueryIntent(rawQuery) {
-      const clean = normalizeText(rawQuery);
-      const rawTokens = clean.split(" ").filter(Boolean);
+    // --- MOTOR INTELIGENTE ANTI-DUPLICADOS CON DETECTOR DE SECCIONES (SOLO vs INTRO) ---
+    const STOP_WORDS = new Set(['ai', 'preset', 'tone', 'pod', 'go', 'line', 'the', 'a', 'an', 'of', 'in', 'on', 'for', 'to', 'and', 'by', 'de', 'la', 'el', 'los', 'las', 'un', 'una', 'con', 'del', 'al', 'y', 'en']);
 
-      let detectedSection = "main";
-      const songTokens = [];
+    const SECTION_MAP = {
+      solo: ["solo", "solos", "lead", "punteo"],
+      intro: ["intro", "introduccion", "opening", "arpegio", "arpeggio"],
+      rhythm: ["rhythm", "ritmo", "ritmica", "verse", "estrofa"],
+      clean: ["clean", "limpio", "acoustic", "acustico"],
+      chorus: ["chorus", "coro", "estribillo"]
+    };
 
-      const stopWords = new Set(["de", "la", "el", "the", "a", "an", "in", "of", "for", "para", "tono", "tone", "preset", "patch", "pod", "go", "line", "6"]);
-
-      for (const token of rawTokens) {
-        let matchedSection = null;
-        for (const [secKey, aliases] of Object.entries(SECTION_ALIASES)) {
-          if (aliases.includes(token)) {
-            matchedSection = secKey;
-            break;
-          }
-        }
-        if (matchedSection) {
-          detectedSection = matchedSection;
-        } else if (!stopWords.has(token)) {
-          songTokens.push(token);
+    function detectSection(str) {
+      if (!str) return "main";
+      const words = str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, " ").split(/\s+/);
+      for (const w of words) {
+        for (const [sec, aliases] of Object.entries(SECTION_MAP)) {
+          if (aliases.includes(w)) return sec;
         }
       }
-
-      return {
-        original: rawQuery,
-        cleanQuery: songTokens.join(" "),
-        songTokens,
-        section: detectedSection
-      };
+      return "main";
     }
 
-    // Distancia de edición Levenshtein para tolerar errores de ortografía
-    function levenshteinDistance(a, b) {
-      const m = a.length, n = b.length;
-      if (m === 0) return n;
-      if (n === 0) return m;
-      const dp = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
-      for (let i = 0; i <= m; i++) dp[i][0] = i;
-      for (let j = 0; j <= n; j++) dp[0][j] = j;
-      for (let i = 1; i <= m; i++) {
-        for (let j = 1; j <= n; j++) {
+    function normalizeText(str) {
+      if (!str) return "";
+      const allSectionWords = new Set(Object.values(SECTION_MAP).flat());
+      return str
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter(w => w.length > 1 && !STOP_WORDS.has(w) && !allSectionWords.has(w))
+        .join(" ");
+    }
+
+    function editDistance(a, b) {
+      if (a === b) return 0;
+      const matrix = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+      for (let j = 1; j <= b.length; j++) matrix[0][j] = j;
+      for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
           const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-          dp[i][j] = Math.min(
-            dp[i - 1][j] + 1,
-            dp[i][j - 1] + 1,
-            dp[i - 1][j - 1] + cost
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j - 1] + cost
           );
         }
       }
-      return dp[m][n];
+      return matrix[a.length][b.length];
     }
 
-    function tokenSimilarity(wordA, wordB) {
-      if (wordA === wordB) return 1.0;
-      if (wordA.length >= 4 && wordB.includes(wordA)) return 0.92;
-      if (wordB.length >= 4 && wordA.includes(wordB)) return 0.92;
-      const maxLen = Math.max(wordA.length, wordB.length);
-      if (maxLen === 0) return 1.0;
-      const dist = levenshteinDistance(wordA, wordB);
-      return 1 - dist / maxLen;
+    function wordsAreSimilar(w1, w2) {
+      if (w1 === w2) return true;
+      if (w1.length >= 4 && w2.length >= 4 && (w1.includes(w2) || w2.includes(w1))) return true;
+      const maxLen = Math.max(w1.length, w2.length);
+      if (maxLen <= 3) return w1 === w2;
+      const dist = editDistance(w1, w2);
+      const allowedErrors = maxLen >= 7 ? 2 : 1;
+      return dist <= allowedErrors;
     }
 
-    // Búsqueda inteligente en el Caché (Exige coincidencia de SECCIÓN + Similitud Ortográfica)
-    function findPresetInSmartCache(rawQuery) {
-      const intent = parseQueryIntent(rawQuery);
-      if (intent.songTokens.length === 0) return null;
+    // Compara canción (con tolerancia a errores de ortografía) + exige que coincida la SECCIÓN (Solo vs Intro)
+    function isSmartPresetMatch(userQuery, presetObjOrTitle) {
+      const presetTitle = typeof presetObjOrTitle === 'string' ? presetObjOrTitle : (presetObjOrTitle.title || "");
+      const presetSection = (typeof presetObjOrTitle === 'object' && presetObjOrTitle.section)
+        ? presetObjOrTitle.section
+        : detectSection(presetTitle);
 
-      const cache = loadSmartCache();
-      let bestMatch = null;
-      let highestScore = 0;
+      const querySection = detectSection(userQuery);
 
-      for (const preset of cache) {
-        const presetSection = preset.section || "main";
+      // Si el usuario pide "like a stone intro" y el preset guardado es "solo", NO coinciden
+      if (querySection !== presetSection) return false;
 
-        // REGLA CLAVE DE FAUSTO: Si el usuario pide "intro" y el preset es "solo", NO coinciden.
-        if (intent.section !== presetSection) continue;
+      const qNorm = normalizeText(userQuery);
+      const tNorm = normalizeText(presetTitle);
+      if (!qNorm || !tNorm) return false;
+      if (tNorm.includes(qNorm) || qNorm.includes(tNorm)) return true;
 
-        const targetCorpus = normalizeText(
-          `${preset.artist || ""} ${preset.song || ""} ${preset.title || ""} ${(preset.keywords || []).join(" ")}`
-        );
-        const targetWords = targetCorpus.split(" ").filter(w => w.length > 1);
+      const qWords = qNorm.split(" ");
+      const tWords = tNorm.split(" ");
 
-        let matchedScoreSum = 0;
-        for (const qToken of intent.songTokens) {
-          let bestWordSim = 0;
-          for (const tWord of targetWords) {
-            const sim = tokenSimilarity(qToken, tWord);
-            if (sim > bestWordSim) bestWordSim = sim;
-          }
-          matchedScoreSum += bestWordSim;
-        }
-
-        const avgScore = matchedScoreSum / intent.songTokens.length;
-        if (avgScore > highestScore) {
-          highestScore = avgScore;
-          bestMatch = preset;
+      let matchedWords = 0;
+      for (let qw of qWords) {
+        if (tWords.some(tw => wordsAreSimilar(qw, tw))) {
+          matchedWords++;
         }
       }
-
-      // Umbral 0.74 permite encontrar "like stone solo" o "lik a ston solo" sin falsos positivos
-      return highestScore >= 0.74 ? { preset: bestMatch, score: highestScore, intent } : null;
+      if (qWords.length <= 2) return matchedWords === qWords.length;
+      return matchedWords >= qWords.length - 1;
     }
 
-    // 5. RENDERIZADO DE TARJETA Y PERILLAS CIRCULARES (ESTILO MOOER GE300)
-    const BADGE_STYLES = {
-      red: "bg-red-500/15 text-red-400 border-red-500/30",
-      orange: "bg-orange-500/15 text-orange-400 border-orange-500/30",
-      yellow: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-      green: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-      blue: "bg-sky-500/15 text-sky-400 border-sky-500/30",
-      purple: "bg-purple-500/15 text-purple-400 border-purple-500/30"
+    window.updateApiStatus = function() {
+      const key = window.cloudGeminiKey || localStorage.getItem('PODGO_GEMINI_KEY');
+      const icon = document.getElementById('keyIcon');
+      if (!icon) return;
+      if (key && key.trim() !== '') {
+        icon.classList.add('text-brand-accent');
+        icon.classList.remove('text-brand-muted');
+      } else {
+        icon.classList.remove('text-brand-accent');
+        icon.classList.add('text-brand-muted');
+      }
     };
 
-    function createGaugeHTML(param) {
-      const pct = Math.max(5, Math.min(100, Number(param.pct) || 50));
-      const radius = 28;
-      const circumference = 2 * Math.PI * radius;
-      const offset = circumference - (pct / 100) * circumference;
-
-      return `
-        <div class="flex flex-col items-center justify-center">
-          <div class="relative w-[72px] h-[72px] flex items-center justify-center">
-            <svg class="w-full h-full" viewBox="0 0 68 68">
-              <circle cx="34" cy="34" r="${radius}" stroke="#1e293b" stroke-width="5" fill="transparent" />
-              <circle cx="34" cy="34" r="${radius}" stroke="#ef4444" stroke-width="5" stroke-linecap="round"
-                fill="transparent"
-                stroke-dasharray="${circumference.toFixed(1)}"
-                stroke-dashoffset="${offset.toFixed(1)}"
-                class="gauge-ring" />
-            </svg>
-            <span class="absolute text-[11px] font-mono font-bold text-red-400 text-center px-1 leading-tight">
-              ${param.val}
-            </span>
-          </div>
-          <span class="mt-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 text-center">
-            ${param.name}
-          </span>
-        </div>
-      `;
-    }
-
-    function renderPresetCard(preset) {
-      const container = document.getElementById("presetCardContainer");
-      const sectionTag = (preset.section || "main").toUpperCase();
-
-      const blocksHTML = (preset.chain || []).map(block => {
-        const badgeClass = BADGE_STYLES[block.badgeColor] || BADGE_STYLES.red;
-        const gaugesHTML = (block.params || []).map(createGaugeHTML).join("");
-        const gridCols = (block.params || []).length === 2 ? "grid-cols-2" : "grid-cols-3";
-
-        return `
-          <div class="bg-[#0b101b] border border-slate-800/90 rounded-2xl p-4 space-y-4 shadow-inner">
-            <div class="flex items-center justify-between gap-2">
-              <span class="text-[10px] font-mono font-bold uppercase px-2.5 py-1 rounded-md border ${badgeClass}">
-                ${block.type}
-              </span>
-              <span class="text-xs sm:text-sm font-bold text-white tracking-tight text-right">
-                ${block.model}
-              </span>
-            </div>
-            <div class="grid ${gridCols} gap-y-4 gap-x-2 pt-1">
-              ${gaugesHTML}
-            </div>
-          </div>
-        `;
-      }).join("");
-
-      container.innerHTML = `
-        <div class="bg-[#111827] border border-slate-800 rounded-3xl p-4 sm:p-5 space-y-4 shadow-2xl">
-          <!-- Header Row -->
-          <div class="flex items-start justify-between gap-3">
-            <div class="space-y-1.5">
-              <div class="flex items-center gap-2">
-                <span class="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-red-500/15 text-red-400 border border-red-500/30">
-                  ${preset.slot || "01A"}
-                </span>
-                <span class="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                  SECTION: ${sectionTag}
-                </span>
-              </div>
-              <h2 class="text-lg sm:text-xl font-extrabold text-white tracking-tight uppercase leading-snug">
-                ${preset.title}
-              </h2>
-              <div class="flex items-center gap-1 text-amber-400 text-xs">
-                <span>★</span><span>★</span><span>★</span><span>★</span><span>★</span>
-              </div>
-            </div>
-
-            <!-- Action Box + Safe Mode -->
-            <div class="flex flex-col items-end gap-2 shrink-0">
-              <div class="flex items-center bg-[#0b101b] border border-slate-800 rounded-xl px-2.5 py-1.5 gap-2.5 text-xs text-slate-300">
-                <button onclick="copyPresetSummary()" class="hover:text-white flex items-center gap-1 font-medium">
-                  <span>Copy</span>
-                </button>
-                <span class="text-slate-700">|</span>
-                <button class="hover:text-red-400 transition">♡</button>
-              </div>
-              <span class="text-[10px] font-semibold px-2.5 py-0.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/30 flex items-center gap-1">
-                <span>🔒</span><span>POD Go v2.50 Verified</span>
-              </span>
-            </div>
-          </div>
-
-          <!-- Description -->
-          <p class="text-xs text-slate-400 leading-relaxed">
-            ${preset.description || ""}
-          </p>
-
-          <!-- TOP PICKUPS & INPUT GATE BOX -->
-          <div class="grid grid-cols-2 gap-2.5">
-            <div class="bg-[#0b101b] border border-slate-800/90 rounded-2xl p-3 flex items-center gap-3">
-              <div class="w-8 h-8 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 shrink-0 text-xs font-bold">
-                PU
-              </div>
-              <div class="min-w-0">
-                <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">PICKUPS</div>
-                <div class="text-xs font-bold text-white truncate">${preset.pickups || "Bridge"}</div>
-              </div>
-            </div>
-
-            <div class="bg-[#0b101b] border border-slate-800/90 rounded-2xl p-3 flex items-center gap-3">
-              <div class="w-8 h-8 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 shrink-0 text-xs font-bold">
-                GT
-              </div>
-              <div class="min-w-0">
-                <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">INPUT GATE</div>
-                <div class="text-xs font-mono font-bold text-white truncate">
-                  ${preset.inputGate ? `${preset.inputGate.threshold} / ${preset.inputGate.decay}` : "-45.0dB / 30%"}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- HARDWARE CHAIN HEADER -->
-          <div class="flex items-center gap-2 pt-1">
-            <span class="w-2 h-2 rounded-full bg-red-500"></span>
-            <span class="text-[11px] font-mono font-bold uppercase tracking-widest text-slate-400">
-              POD GO HARDWARE CHAIN
-            </span>
-          </div>
-
-          <!-- BLOCK CARDS -->
-          <div class="space-y-3">
-            ${blocksHTML}
-          </div>
-
-          <!-- BOTTOM BRIEF ASSIGNMENTS BOX (Como en la MOOER GE300) -->
-          <div class="bg-[#0b101b] border border-slate-800/90 rounded-2xl p-3.5 space-y-1.5">
-            <div class="text-[10px] font-mono font-bold uppercase tracking-wider text-red-400">
-              CTRL, EXP & SNAPSHOT ASSIGNMENTS
-            </div>
-            <p class="text-xs text-slate-300 font-medium">
-              <span class="text-slate-500 font-mono">STOMP:</span> ${preset.assignments?.footswitches || "FS1: Drive | FS2: Mod | FS3: Delay"}
-            </p>
-            <p class="text-xs text-slate-300 font-medium">
-              <span class="text-slate-500 font-mono">EXP:</span> ${preset.assignments?.expression || "EXP 1: Wah | EXP 2: Volume Pedal"}
-            </p>
-            <p class="text-xs text-slate-300 font-medium">
-              <span class="text-slate-500 font-mono">SNAPS:</span> ${preset.assignments?.snapshots || "Snap 1: Clean | Snap 2: Rhythm | Snap 3: Lead | Snap 4: Ambient"}
-            </p>
-          </div>
-        </div>
-      `;
-      window.currentRenderedPreset = preset;
-    }
-
-    // 6. GENERADOR IA CON GEMINI API + GUARDADO AUTOMÁTICO EN CACHÉ
-    async function generatePresetWithGemini(rawQuery, intent) {
-      const apiKey = localStorage.getItem(API_KEY_STORAGE);
-      if (!apiKey) {
-        showStatusBanner(
-          "No se encontró en caché local. Configura tu Gemini API Key (icono 🔑 arriba) para crear nuevos presets con IA.",
-          "API KEY REQUIRED",
-          "amber"
-        );
-        openApiKeyModal();
-        return null;
+    function toggleApiKeyModal() {
+      const modal = document.getElementById('apiKeyModal');
+      if (modal) {
+        modal.classList.toggle('hidden');
+        const savedKey = window.cloudGeminiKey || localStorage.getItem('PODGO_GEMINI_KEY');
+        if (savedKey) document.getElementById('apiKeyInput').value = savedKey;
       }
-
-      const btn = document.getElementById("searchBtn");
-      const originalBtnHTML = btn.innerHTML;
-      btn.disabled = true;
-      btn.innerHTML = `<span class="animate-pulse">AI Thinking...</span>`;
-
-      showStatusBanner(
-        `Generando preset exacto para "${rawQuery}" (Sección: ${intent.section.toUpperCase()}) con el Manual POD Go v2.50...`,
-        "GEMINI AI LIVE",
-        "red"
-      );
-
-      const systemInstruction = `
-Eres un ingeniero de sonido experto en la pedalera Line 6 POD Go (Firmware v2.50).
-Tu misión es corregir cualquier error ortográfico en la búsqueda del usuario, identificar el artista, la canción y la sección exacta (${intent.section}), y devolver un preset 100% real para copiar a la Line 6 POD Go física.
-
-REGLAS ESTRICTAS DEL MANUAL LINE 6 POD GO v2.50:
-1. Usa ÚNICAMENTE nombres de modelos reales de esta lista oficial del manual:
-   - Amps: ${POD_GO_MANUAL_DB.amps.join(", ")}
-   - Cabs: ${POD_GO_MANUAL_DB.cabs.join(", ")}
-   - Mics: ${POD_GO_MANUAL_DB.mics.join(", ")}
-   - Distortion: ${POD_GO_MANUAL_DB.distortions.join(", ")}
-   - Dynamics: ${POD_GO_MANUAL_DB.dynamics.join(", ")}
-   - Modulation: ${POD_GO_MANUAL_DB.modulations.join(", ")}
-   - Delay: ${POD_GO_MANUAL_DB.delays.join(", ")}
-   - Reverb: ${POD_GO_MANUAL_DB.reverbs.join(", ")}
-   - EQ: ${POD_GO_MANUAL_DB.eqs.join(", ")}
-   - Wah/Pitch: ${POD_GO_MANUAL_DB.wahsAndPitch.join(", ")}
-2. En los bloques muestra sólo el nombre corto oficial que sale en la pantalla de la POD Go (ej. "Brit 2203", "Jazz Rivet 120", "4x12 Cali V30", "Scream 808", "70s Chorus", "Transistor Tape", "Dynamic Hall").
-3. Las perillas de Amp y Drive en Line 6 van de 0.0 a 10.0. En Cab incluye siempre MIC (ej. "57 Dynamic" o "121 Ribbon"), DISTANCE (ej. "4.0cm"), LOW CUT (ej. "85Hz") y HIGH CUT (ej. "8.0kHz").
-4. Devuelve EXCLUSIVAMENTE un objeto JSON válido con la siguiente estructura exacta (sin bloques markdown):
-{
-  "slot": "02A",
-  "title": "ARTISTA CORREGIDO - CANCIÓN CORREGIDA (SECCIÓN)",
-  "artist": "Nombre Oficial del Artista",
-  "song": "Nombre Oficial de la Canción",
-  "section": "${intent.section}",
-  "keywords": ["artista", "cancion", "variantes sin tildes"],
-  "description": "Explicación breve del tono real en inglés o español estilo estudio",
-  "pickups": "Bridge / Neck / Neck+Middle",
-  "inputGate": { "gate": "On", "threshold": "-45.0dB", "decay": "30%" },
-  "chain": [
-    {
-      "type": "DYN | DIST | WAH | PITCH | AMP | CAB | EQ | MOD | DELAY | REV",
-      "badgeColor": "yellow | orange | purple | red | blue | green",
-      "model": "Nombre Exacto Modelo POD Go",
-      "params": [
-        { "name": "DRIVE", "val": "6.5", "pct": 65 }
-      ]
     }
-  ],
-  "assignments": {
-    "footswitches": "FS1: ... | FS2: ... | FS3: ...",
-    "expression": "EXP 1: ... | EXP 2: Volume Pedal",
-    "snapshots": "Snap 1: ... | Snap 2: ... | Snap 3: ... | Snap 4: ..."
-  }
+
+    async function saveApiKey() {
+      const keyInput = document.getElementById('apiKeyInput');
+      if (keyInput) {
+        const key = keyInput.value.trim();
+        if (key) {
+          localStorage.setItem('PODGO_GEMINI_KEY', key);
+          window.cloudGeminiKey = key;
+          try {
+            if (window.firebaseDb && window.firestoreDoc && window.firestoreSetDoc) {
+              await window.firestoreSetDoc(window.firestoreDoc(window.firebaseDb, "app_config", "ai_engine"), { geminiKey: key }, { merge: true });
+            }
+          } catch (e) { console.error("Error guardando API Key en la nube:", e); }
+        } else {
+          localStorage.removeItem('PODGO_GEMINI_KEY');
+        }
+        window.updateApiStatus();
+        toggleApiKeyModal();
+      }
+    }
+
+    // --- MOTOR IA TURBO GEMINI FLASH CON INYECCIÓN DEL MANUAL LINE 6 POD GO v2.50 ---
+    async function fetchAITone(query, section, apiKey) {
+      const sectionLabel = section && section !== 'main' ? section.toUpperCase() : 'MAIN TONE';
+      const prompt = `You are a Line 6 POD Go Firmware v2.50 expert audio engineer. Create the exact guitar tone for: "${query}" (Requested Section: ${sectionLabel}).
+Correct any spelling mistakes in the artist or song name and provide the standardized "ARTIST - SONG TITLE (${sectionLabel})" in "cleanTitle".
+Include ONLY the necessary blocks to nail this tone on the physical Line 6 POD Go (between 3 and 6 blocks, NEVER include VOL).
+For each block, return the real Line 6 POD Go parameters needed (on Line 6 Amps/Drives knobs go from 0.0 to 10.0, e.g., Drive, Bass, Mid or Cut, Treble, Presence, Ch Vol; on Cab include Mic, Distance in cm, Low Cut, High Cut).
+
+Official Line 6 POD Go v2.50 Catalogs:
+- AMP: ${PODGO_CATALOG.AMP.join(', ')}
+- CAB: ${PODGO_CATALOG.CAB.join(', ')}
+- CAB MICS: ${PODGO_CATALOG.MIC.join(', ')}
+- DIST: ${PODGO_CATALOG.DIST.join(', ')}
+- DYN: ${PODGO_CATALOG.DYN.join(', ')}
+- EQ: ${PODGO_CATALOG.EQ.join(', ')}
+- MOD: ${PODGO_CATALOG.MOD.join(', ')}
+- DELAY: ${PODGO_CATALOG.DELAY.join(', ')}
+- REVERB: ${PODGO_CATALOG.REVERB.join(', ')}
+- WAH: ${PODGO_CATALOG.WAH.join(', ')}
+- PITCH: ${PODGO_CATALOG.PITCH.join(', ')}
+
+Return ONLY valid JSON in English:
+{
+  "cleanTitle": "ARTIST - SONG (${sectionLabel})",
+  "section": "${section}",
+  "pickup": "Bridge or Neck",
+  "inputGate": "-45.0dB / 30%",
+  "desc": "Brief studio description of the rig and tone",
+  "ctrls": ["FS1: Scream 808", "EXP 1: Wah", "Snap 1: Rhythm | Snap 2: Lead"],
+  "blocks": [
+    {"type": "DIST", "name": "Scream 808", "p": {"Gain": 2.5, "Tone": 6.5, "Level": 8.0}},
+    {"type": "AMP", "name": "Brit 2203", "p": {"Drive": 6.8, "Bass": 6.0, "Mid": 7.0, "Treble": 6.5, "Presence": 5.5}},
+    {"type": "CAB", "name": "4x12 Greenback25", "p": {"Mic": "57 Dynamic", "Distance": "4.0cm", "Low Cut": "85Hz", "High Cut": "8.0kHz"}}
+  ]
 }`;
 
-      try {
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
+      // Probamos primero tu modelo configurado y respaldamos automáticamente si la región requiere 2.5/2.0
+      const modelsToTry = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+      let lastError = null;
+
+      for (const modelName of modelsToTry) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+        try {
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              systemInstruction: { parts: [{ text: systemInstruction }] },
-              contents: [{ parts: [{ text: ` Crea el preset de Line 6 POD Go para: "${rawQuery}" (Sección solicitada: ${intent.section})` }] }],
-              generationConfig: {
-                temperature: 0.3,
-                responseMimeType: "application/json"
-              }
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { responseMimeType: "application/json", temperature: 0.35 }
             })
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            let rawText = data.candidates[0].content.parts[0].text;
+            const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) rawText = jsonMatch[0];
+            return JSON.parse(rawText);
+          } else {
+            const errData = await response.json();
+            lastError = new Error(errData.error?.message || `HTTP ${response.status}`);
+            if (response.status !== 404) break;
           }
-        );
-
-        if (!response.ok) {
-          throw new Error(`Error HTTP ${response.status}`);
+        } catch (err) {
+          lastError = err;
         }
-
-        const data = await response.json();
-        const textOutput = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        const cleanJson = textOutput.replace(/```json|```/g, "").trim();
-        const generatedPreset = JSON.parse(cleanJson);
-
-        generatedPreset.section = intent.section;
-        generatedPreset.id = normalizeText(`${generatedPreset.artist}-${generatedPreset.song}-${intent.section}`).replace(/\s+/g, "-");
-
-        // Incluir también los tokens originales de búsqueda en keywords para que futuras búsquedas mal escritas coincidan al instante
-        const extraKeywords = new Set([...(generatedPreset.keywords || []), ...intent.songTokens]);
-        generatedPreset.keywords = Array.from(extraKeywords);
-
-        savePresetToSmartCache(generatedPreset);
-        showStatusBanner(
-          `Ortografía corregida y guardado en Caché Inteligente: ${generatedPreset.title}`,
-          "NEW AI PRESET SAVED",
-          "emerald"
-        );
-        return generatedPreset;
-      } catch (err) {
-        showStatusBanner(
-          `Error al conectar con Gemini API (${err.message}). Verifica tu API Key.`,
-          "API ERROR",
-          "red"
-        );
-        return null;
-      } finally {
-        btn.disabled = false;
-        btn.innerHTML = originalBtnHTML;
       }
+      throw lastError || new Error("Google API Connection Error");
     }
 
-    // 7. MANEJADOR PRINCIPAL DEL BUSCADOR INTELIGENTE
-    async function handleSmartSearch(event) {
-      if (event) event.preventDefault();
-      const input = document.getElementById("searchInput");
-      const rawQuery = input.value.trim();
-      if (!rawQuery) return;
+    // --- FLUJO DE BÚSQUEDA INTELIGENTE (UNIVERSAL -> LOCALSTORAGE -> FIRESTORE VAULT -> IA) ---
+    document.getElementById('aiToneForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
 
-      const intent = parseQueryIntent(rawQuery);
+      const currentUser = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+      const userEmail = currentUser && currentUser.email ? currentUser.email.toLowerCase() : "";
+      const isAdmin = userEmail === "faustolute@gmail.com";
+      const isUserPro = window.currentUserData && window.currentUserData.isPro === true;
+      const generationsUsed = window.currentUserData && window.currentUserData.freeGenerationsUsed !== undefined ? window.currentUserData.freeGenerationsUsed : 0;
 
-      // PASO A: Buscar primero en el Caché Inteligente (Tolerante a faltas de ortografía + Estricto con la sección)
-      const cachedHit = findPresetInSmartCache(rawQuery);
-      if (cachedHit) {
-        renderPresetCard(cachedHit.preset);
-        showStatusBanner(
-          `Coincidencia encontrada en Caché (${Math.round(cachedHit.score * 100)}% match, Sección: ${intent.section.toUpperCase()}). Cero consumo de IA.`,
-          "⚡ SMART CACHE HIT",
-          "emerald"
-        );
+      if (!isUserPro && !isAdmin && generationsUsed >= 3) {
+        document.getElementById('paywallModal').classList.remove('hidden');
         return;
       }
 
-      // PASO B: Si no existe esa canción o esa sección específica, generarla con IA y guardarla
-      const newPreset = await generatePresetWithGemini(rawQuery, intent);
-      if (newPreset) {
-        renderPresetCard(newPreset);
-      }
-    }
+      const queryInput = document.getElementById('toneSearchInput');
+      const query = queryInput.value.trim();
+      if (!query) return;
 
-    function quickSearch(queryText) {
-      const input = document.getElementById("searchInput");
-      input.value = queryText;
-      switchTab("tone");
-      handleSmartSearch();
-    }
+      const reqSection = detectSection(query);
+      let finalPreset = null;
+      let isUniversal = false;
 
-    // 8. UTILIDADES DE INTERFAZ (BANNERS, TABS, LIBRARY, API KEY MODAL)
-    function showStatusBanner(message, tag, color = "emerald") {
-      const banner = document.getElementById("statusBanner");
-      const textEl = document.getElementById("statusBannerText");
-      const tagEl = document.getElementById("statusBannerTag");
-
-      const colorClasses = {
-        emerald: "bg-emerald-500/10 border-emerald-500/30 text-emerald-300",
-        amber: "bg-amber-500/10 border-amber-500/30 text-amber-300",
-        red: "bg-red-500/10 border-red-500/30 text-red-300"
-      };
-
-      banner.className = `rounded-xl px-3.5 py-2.5 text-xs font-medium border flex items-center justify-between gap-2 ${colorClasses[color] || colorClasses.emerald}`;
-      textEl.textContent = message;
-      tagEl.textContent = tag;
-      banner.classList.remove("hidden");
-    }
-
-    function renderLibraryList() {
-      const cache = loadSmartCache();
-      const badge = document.getElementById("cacheCountBadge");
-      const list = document.getElementById("libraryList");
-      if (badge) badge.textContent = `${cache.length} Presets`;
-      if (!list) return;
-
-      list.innerHTML = cache.map(p => `
-        <div onclick="selectFromLibrary('${p.id}')"
-          class="cursor-pointer bg-[#0b101b] hover:bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center justify-between gap-3 transition">
-          <div class="min-w-0">
-            <div class="flex items-center gap-2">
-              <span class="text-[10px] font-mono font-bold text-red-400">${p.slot || "01A"}</span>
-              <span class="text-[10px] font-mono uppercase px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">${p.section || "main"}</span>
-              <h4 class="text-xs font-bold text-white truncate">${p.title}</h4>
-            </div>
-            <p class="text-[11px] text-slate-400 truncate mt-0.5">${p.description || ""}</p>
-          </div>
-          <span class="text-xs text-red-400 font-bold shrink-0">Load →</span>
-        </div>
-      `).join("");
-    }
-
-    function selectFromLibrary(presetId) {
-      const cache = loadSmartCache();
-      const found = cache.find(p => p.id === presetId);
-      if (found) {
-        switchTab("tone");
-        renderPresetCard(found);
-        showStatusBanner(`Preset cargado desde tu Library Cache: ${found.title}`, "LIBRARY LOAD", "emerald");
-      }
-    }
-
-    function renderHardwareDbSummary() {
-      const container = document.getElementById("hardwareDbSummary");
-      if (!container) return;
-      const items = [
-        { label: "Amplificadores", count: POD_GO_MANUAL_DB.amps.length },
-        { label: "Gabinetes (v2.50)", count: POD_GO_MANUAL_DB.cabs.length },
-        { label: "Micrófonos", count: POD_GO_MANUAL_DB.mics.length },
-        { label: "Distorsiones / OD", count: POD_GO_MANUAL_DB.distortions.length },
-        { label: "Modulaciones", count: POD_GO_MANUAL_DB.modulations.length },
-        { label: "Delays & Reverbs", count: POD_GO_MANUAL_DB.delays.length + POD_GO_MANUAL_DB.reverbs.length }
-      ];
-      container.innerHTML = items.map(item => `
-        <div class="bg-[#0b101b] border border-slate-800 rounded-xl p-3">
-          <div class="text-lg font-mono font-extrabold text-red-400">${item.count}</div>
-          <div class="text-[11px] text-slate-400 font-medium">${item.label}</div>
-        </div>
-      `).join("");
-    }
-
-    function switchTab(tabName) {
-      ["tone", "library", "tools"].forEach(t => {
-        const view = document.getElementById(`view-${t}`);
-        const tabBtn = document.getElementById(`tab-${t}`);
-        if (t === tabName) {
-          view.classList.remove("hidden");
-          tabBtn.classList.remove("text-slate-400");
-          tabBtn.classList.add("text-red-500", "font-semibold");
-        } else {
-          view.classList.add("hidden");
-          tabBtn.classList.remove("text-red-500", "font-semibold");
-          tabBtn.classList.add("text-slate-400");
+      // 1. Buscar en Presets Universales
+      for (let key in UNIVERSAL_PRESETS) {
+        if (isSmartPresetMatch(query, UNIVERSAL_PRESETS[key])) {
+          currentCacheKey = key;
+          finalPreset = UNIVERSAL_PRESETS[key];
+          isUniversal = true;
+          break;
         }
-      });
-      if (tabName === "library") renderLibraryList();
-    }
-
-    function openApiKeyModal() {
-      const currentKey = localStorage.getItem(API_KEY_STORAGE) || "";
-      document.getElementById("geminiApiKeyInput").value = currentKey;
-      document.getElementById("apiKeyModal").classList.remove("hidden");
-    }
-
-    function closeApiKeyModal() {
-      document.getElementById("apiKeyModal").classList.add("hidden");
-    }
-
-    function saveApiKey() {
-      const val = document.getElementById("geminiApiKeyInput").value.trim();
-      if (val) {
-        localStorage.setItem(API_KEY_STORAGE, val);
-        updateEngineBadge();
-        closeApiKeyModal();
-        showStatusBanner("Gemini API Key activada. Ahora cualquier búsqueda nueva se creará con IA y se guardará en caché.", "AI READY", "emerald");
       }
-    }
 
-    function clearApiKey() {
-      localStorage.removeItem(API_KEY_STORAGE);
-      document.getElementById("geminiApiKeyInput").value = "";
-      updateEngineBadge();
-      closeApiKeyModal();
-    }
+      // 2. Buscar en LocalStorage (PODGO_CACHE_)
+      if (!finalPreset) {
+        for (let i = 0; i < localStorage.length; i++) {
+          let key = localStorage.key(i);
+          if (key && key.startsWith('PODGO_CACHE_')) {
+            try {
+              let parsed = JSON.parse(localStorage.getItem(key));
+              if (parsed && isSmartPresetMatch(query, parsed)) {
+                currentCacheKey = key;
+                finalPreset = parsed;
+                break;
+              }
+            } catch(e) {}
+          }
+        }
+      }
 
-    function updateEngineBadge() {
-      const hasKey = !!localStorage.getItem(API_KEY_STORAGE);
-      const badge = document.getElementById("engineBadge");
-      if (hasKey) {
-        badge.textContent = "AI LIVE";
-        badge.className = "cursor-pointer text-[11px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30";
+      // 3. Buscar en la Bóveda Global de Firestore (podgo_global_presets)
+      if (!finalPreset && window.globalCloudPresets) {
+        for (let key in window.globalCloudPresets) {
+          let cloudPreset = window.globalCloudPresets[key];
+          if (cloudPreset && isSmartPresetMatch(query, cloudPreset)) {
+            currentCacheKey = key;
+            finalPreset = cloudPreset;
+            localStorage.setItem(key, JSON.stringify({ ...cloudPreset, isFav: false }));
+            break;
+          }
+        }
+      }
+
+      if (finalPreset) {
+        await registerSearchUsage();
+        renderPreset(finalPreset, isUniversal);
       } else {
-        badge.textContent = "AI STUDIO";
-        badge.className = "cursor-pointer text-[11px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-lg bg-red-500/10 text-red-400 border border-red-500/30";
+        currentCacheKey = 'PODGO_CACHE_' + normalizeText(query).replace(/\s+/g, '_') + '_' + reqSection;
+        pendingSearchQuery = query;
+        pendingSearchSection = reqSection;
+        document.getElementById('confirmModalSubtitle').innerText = `Section: ${reqSection.toUpperCase()} • Line 6 POD Go v2.50`;
+        document.getElementById('confirmIaModal').classList.remove('hidden');
+      }
+    });
+
+    async function registerSearchUsage() {
+      const currentUser = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+      const userEmail = currentUser && currentUser.email ? currentUser.email.toLowerCase() : "";
+      const isAdmin = userEmail === "faustolute@gmail.com";
+      const isUserPro = window.currentUserData && window.currentUserData.isPro === true;
+      if (isUserPro || isAdmin) return;
+
+      window.currentUserData.freeGenerationsUsed = (window.currentUserData.freeGenerationsUsed || 0) + 1;
+      try {
+        if (currentUser && window.firebaseDb && window.firestoreDoc && window.firestoreSetDoc) {
+          const userRef = window.firestoreDoc(window.firebaseDb, "users", currentUser.uid);
+          await window.firestoreSetDoc(userRef, { freeGenerationsUsed: window.currentUserData.freeGenerationsUsed }, { merge: true });
+        }
+      } catch (error) {
+        console.error("Error al actualizar contador en Firestore:", error);
       }
     }
 
-    function copyPresetSummary() {
-      const p = window.currentRenderedPreset;
-      if (!p) return;
-      const lines = [
-        `LINE 6 POD GO PRESET: ${p.title}`,
-        `Pickups: ${p.pickups} | Gate: ${p.inputGate?.threshold}`,
-        ...(p.chain || []).map(b => `[${b.type}] ${b.model}: ${(b.params || []).map(k => `${k.name}=${k.val}`).join(", ")}`),
-        `Stomp: ${p.assignments?.footswitches}`,
-        `Snaps: ${p.assignments?.snapshots}`
-      ];
-      navigator.clipboard.writeText(lines.join("\n"));
-      showStatusBanner("Valores del preset copiados al portapapeles.", "COPIED", "emerald");
+    function cancelIaGeneration() {
+      document.getElementById('confirmIaModal').classList.add('hidden');
+      pendingSearchQuery = '';
     }
 
-    // Inicializar al cargar la página
-    window.addEventListener("DOMContentLoaded", () => {
-      const cache = loadSmartCache();
-      renderPresetCard(cache[0]);
-      renderLibraryList();
-      renderHardwareDbSummary();
-      updateEngineBadge();
+    async function confirmIaGeneration() {
+      document.getElementById('confirmIaModal').classList.add('hidden');
+      const query = pendingSearchQuery;
+      const section = pendingSearchSection || 'main';
+      if (!query) return;
+
+      const queryInput = document.getElementById('toneSearchInput');
+      const searchBtn = document.getElementById('searchBtn');
+      queryInput.disabled = true; searchBtn.disabled = true;
+      queryInput.classList.add('opacity-50'); searchBtn.classList.add('opacity-50');
+      document.getElementById('btnText').innerText = "Building...";
+      document.getElementById('btnIcon').className = "fa-solid fa-spinner animate-spin";
+
+      const apiKey = window.cloudGeminiKey || localStorage.getItem('PODGO_GEMINI_KEY') || localStorage.getItem('GE300_GEMINI_KEY');
+      let finalPreset = null;
+
+      try {
+        if (apiKey && apiKey.trim() !== '') {
+          const aiData = await fetchAITone(query, section, apiKey);
+          let parsedBlocks = [];
+
+          if (Array.isArray(aiData.blocks)) {
+            aiData.blocks.forEach(bData => {
+              const rawType = (bData.type || "AMP").toUpperCase();
+              if (rawType === "VOL" || rawType === "VOLUME") return;
+              const normType = rawType === "DS/OD" ? "DIST" : (rawType === "COMP" ? "DYN" : (rawType === "REV" ? "REVERB" : rawType));
+              parsedBlocks.push({
+                type: POD_BLOCK_COLORS[normType] ? normType : "AMP",
+                model: bData.name || "Brit 2203",
+                knobs: bData.p || { "Drive": 5.0, "Bass": 5.0, "Mid": 5.0, "Treble": 5.0 }
+              });
+            });
+          }
+
+          const cleanTitle = aiData.cleanTitle
+            ? aiData.cleanTitle.toUpperCase()
+            : `${query.toUpperCase()} (${section.toUpperCase()})`;
+
+          // Clave limpia basada en el título ortográficamente corregido + sección
+          const canonicalKey = 'PODGO_CACHE_' + normalizeText(cleanTitle).replace(/\s+/g, '_') + '_' + section;
+          currentCacheKey = canonicalKey;
+
+          finalPreset = {
+            id: canonicalKey,
+            title: cleanTitle,
+            section: section,
+            bank: "01C",
+            desc: aiData.desc || "Line 6 POD Go v2.50 Custom AI Preset.",
+            pickup: aiData.pickup || "Bridge",
+            inputGate: aiData.inputGate || "-45.0dB / 30%",
+            ctrls: aiData.ctrls || ["FS1: Drive", "EXP 1: Wah / Pitch", "Snap 1: Main Tone"],
+            rating: 4.9,
+            votesCount: 1,
+            isFav: false,
+            favUsers: [],
+            blocks: parsedBlocks
+          };
+
+          localStorage.setItem(currentCacheKey, JSON.stringify(finalPreset));
+          window.globalCloudPresets[currentCacheKey] = finalPreset;
+
+          if (window.firebaseDb && window.firestoreDoc && window.firestoreSetDoc) {
+            await window.firestoreSetDoc(window.firestoreDoc(window.firebaseDb, "podgo_global_presets", currentCacheKey), finalPreset, { merge: true });
+          }
+
+          await registerSearchUsage();
+        } else {
+          throw new Error("Master API Key not configured yet. Log in as Admin (faustolute@gmail.com) and tap the 🔑 icon to save your Gemini Key once.");
+        }
+      } catch (error) {
+        alert(`Connection or API Key notice:\n\n${error.message}`);
+      } finally {
+        queryInput.disabled = false; searchBtn.disabled = false;
+        queryInput.classList.remove('opacity-50'); searchBtn.classList.remove('opacity-50');
+        document.getElementById('btnText').innerText = "Search";
+        document.getElementById('btnIcon').className = "fa-solid fa-arrow-right text-[10px]";
+      }
+      if (finalPreset) renderPreset(finalPreset, false);
+    }
+
+    // --- RENDERIZADO DE BARRAS HORIZONTALES RECTANGULARES (PANTALLA REAL LINE 6 POD GO) ---
+    function parseKnobValue(valStr) {
+      valStr = String(valStr !== undefined && valStr !== null ? valStr : "5.0");
+      let numMatch = valStr.match(/-?\d+(\.\d+)?/);
+      if (!numMatch) return { num: 100, prefix: '', suffix: '', isTextOnly: true };
+      let num = parseFloat(numMatch[0]);
+      let idx = valStr.indexOf(numMatch[0]);
+      return {
+        num,
+        prefix: valStr.substring(0, idx),
+        suffix: valStr.substring(idx + numMatch[0].length),
+        isTextOnly: false
+      };
+    }
+
+    function calculatePodBarPercentage(parsed) {
+      if (parsed.isTextOnly) return 100;
+      const s = parsed.suffix.toLowerCase();
+      if (s.includes('db')) return Math.min(100, Math.max(5, ((parsed.num + 15) / 30) * 100));
+      if (s.includes('ms')) return Math.min(100, Math.max(5, (parsed.num / 1000) * 100));
+      if (s.includes('khz')) return Math.min(100, Math.max(5, (parsed.num / 12) * 100));
+      if (s.includes('hz')) return Math.min(100, Math.max(5, (parsed.num / 500) * 100));
+      if (s.includes('cm')) return Math.min(100, Math.max(5, (parsed.num / 20) * 100));
+      if (s.includes('%')) return Math.min(100, Math.max(0, parsed.num));
+      // En Line 6 POD Go las perillas de Amp, Drive, EQ y Reverb van de 0.0 a 10.0
+      if (parsed.num <= 10 && parsed.num >= 0) return Math.min(100, Math.max(3, (parsed.num / 10) * 100));
+      return Math.min(100, Math.max(3, parsed.num));
+    }
+
+    function renderPodRectangularBar(label, value, blockType, colorHex) {
+      let valStr = String(value !== undefined && value !== null ? value : "5.0");
+      let parsed = parseKnobValue(valStr);
+      // Si es un número puro entre 0 y 10 sin decimales (ej. 5 -> 5.0 como en la pantalla de la Line 6)
+      if (!parsed.isTextOnly && !parsed.prefix && !parsed.suffix && parsed.num <= 10 && Number.isInteger(parsed.num)) {
+        valStr = parsed.num.toFixed(1);
+      }
+      let pct = calculatePodBarPercentage(parsed);
+
+      return `
+        <div class="pod-bar-widget flex flex-col justify-between py-1 select-none"
+             data-block-type="${blockType}"
+             data-knob-name="${label}"
+             data-raw-val="${valStr}"
+             onmousedown="handleDragStart(event, this)"
+             ontouchstart="handleDragStart(event, this)">
+          <!-- Valor numérico arriba en el color del bloque -->
+          <div class="text-[11px] font-mono font-bold text-center truncate px-0.5 mb-1"
+               style="color: ${colorHex};"
+               data-role="val-badge">${valStr}</div>
+
+          <!-- Barra Rectangular Horizontal estilo LCD POD Go -->
+          <div class="pod-bar-track w-full">
+            <div class="pod-bar-fill" style="width: ${pct}%; background-color: ${colorHex};" data-role="bar-fill"></div>
+          </div>
+
+          <!-- Nombre de la perilla abajo en blanco -->
+          <div class="text-[10px] font-sans font-semibold text-white text-center truncate mt-1 tracking-tight">
+            ${label}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderMiniSignalChain(blocks) {
+      const container = document.getElementById('miniSignalChain');
+      if (!container) return;
+      const iconsHtml = blocks.map(b => {
+        const c = POD_BLOCK_COLORS[b.type] || POD_BLOCK_COLORS.AMP;
+        const heightClass = (b.type === 'WAH' || b.type === 'PITCH') ? 'h-6 w-3' : (b.type === 'AMP' || b.type === 'CAB' ? 'h-5 w-7' : 'h-6 w-4');
+        return `<div class="${heightClass} rounded-[2px] shrink-0 shadow-sm border border-white/20" style="background-color:${c.hex};" title="${c.label}: ${b.model}"></div>`;
+      }).join('<div class="h-[2px] w-2 bg-slate-600 shrink-0"></div>');
+
+      container.innerHTML = `
+        <div class="w-2.5 h-2.5 rounded-full border-2 border-slate-400 shrink-0"></div>
+        <div class="h-[2px] w-2 bg-slate-600 shrink-0"></div>
+        ${iconsHtml}
+        <div class="h-[2px] w-2 bg-slate-600 shrink-0"></div>
+        <div class="w-2.5 h-2.5 rounded-full border-2 border-slate-400 shrink-0"></div>
+      `;
+    }
+
+    function renderPreset(preset, isUniversal = false) {
+      isEditMode = false;
+      const mainContainer = document.getElementById('mainPresetContainer');
+      mainContainer.classList.add('view-mode');
+      mainContainer.classList.remove('edit-mode');
+      document.getElementById('btnEdit').innerHTML = `<i class="fa-solid fa-pen-to-square"></i> <span>Edit</span>`;
+      document.getElementById('editStatusBadge').innerHTML = `🔒 Safe Mode`;
+      document.getElementById('editStatusBadge').className = "text-[9px] text-brand-accent bg-brand-accent/10 px-2 py-0.5 rounded font-mono border border-brand-accent/20";
+
+      document.getElementById('presetBank').innerText = preset.bank || "01C";
+      document.getElementById('presetSectionTag').innerText = (preset.section || "main").toUpperCase();
+      document.getElementById('songTitle').innerText = (preset.title || "").replace(/^AI PRESET:\s*/i, "");
+      document.getElementById('soundDescription').innerText = preset.desc || "";
+      document.getElementById('pickupRec').innerText = preset.pickup || "Bridge";
+      document.getElementById('inputGateRec').innerText = preset.inputGate || "-45.0dB / 30%";
+
+      if (preset.ctrls && preset.ctrls.length > 0) {
+        document.getElementById('ctrlAssignments').innerHTML = preset.ctrls.map(c => `<div class="bg-brand-panel/80 px-2 py-1 rounded border border-brand-border/40">${c}</div>`).join('');
+      } else {
+        document.getElementById('ctrlAssignments').innerHTML = `<div class="text-brand-muted/50 italic">Standard Stomp Assignments</div>`;
+      }
+
+      const currentUser = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+      const userUid = currentUser ? currentUser.uid : "guest";
+      const isAdmin = currentUser && currentUser.email && currentUser.email.toLowerCase() === "faustolute@gmail.com";
+      const isFavNow = Array.isArray(preset.favUsers) ? preset.favUsers.includes(userUid) : (isAdmin && preset.isFav === true);
+
+      renderInteractiveStars(preset);
+      updateFavUI(isFavNow);
+
+      if (preset.blocks) {
+        preset.blocks.sort((a, b) => {
+          let idxA = BLOCK_ORDER.indexOf(a.type);
+          let idxB = BLOCK_ORDER.indexOf(b.type);
+          return (idxA === -1 ? 99 : idxA) - (idxB === -1 ? 99 : idxB);
+        });
+      }
+
+      renderMiniSignalChain(preset.blocks || []);
+
+      const blocksContainer = document.getElementById('effectBlocksContainer');
+      blocksContainer.innerHTML = '';
+
+      (preset.blocks || []).forEach(block => {
+        const colorMeta = POD_BLOCK_COLORS[block.type] || POD_BLOCK_COLORS.AMP;
+        const knobsToRender = block.displayKnobs ? block.displayKnobs : block.knobs;
+        const entries = Object.entries(knobsToRender || {});
+        const colCount = Math.min(5, Math.max(3, entries.length));
+
+        const barsHTML = entries.map(([k, v]) => renderPodRectangularBar(k, v, block.type, colorMeta.hex)).join('');
+
+        const blockEl = document.createElement('div');
+        blockEl.className = "rounded-xl overflow-hidden border border-slate-800 bg-[#0c1017] shadow-lg";
+        blockEl.innerHTML = `
+          <!-- Cabecera de Bloque idéntica al Inspector LCD de Line 6 POD Go -->
+          <div class="relative px-3.5 py-1.5 flex items-center justify-between border-t-2"
+               style="border-top-color: ${colorMeta.hex}; background-color: ${colorMeta.bgHeader};">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="text-xs font-extrabold tracking-tight" style="color: ${colorMeta.hex};">${colorMeta.label}</span>
+              <span class="text-xs sm:text-sm font-bold text-white truncate">${block.model}</span>
+            </div>
+            <!-- Puntos de página estilo LCD Line 6 -->
+            <div class="flex items-center gap-1 shrink-0">
+              <span class="w-1.5 h-1.5 rounded-full" style="background-color: ${colorMeta.hex};"></span>
+              <span class="w-1.5 h-1.5 rounded-full bg-black/60"></span>
+              <span class="w-1.5 h-1.5 rounded-full bg-black/60"></span>
+            </div>
+          </div>
+
+          <!-- Fila de Barras Rectangulares Horizontales -->
+          <div class="p-3 grid grid-cols-3 sm:grid-cols-${colCount} gap-3 bg-[#161215]/90">
+            ${barsHTML}
+          </div>
+        `;
+        blocksContainer.appendChild(blockEl);
+      });
+    }
+
+    // --- EDICIÓN TÁCTIL EN VIVO SOBRE LAS BARRAS RECTANGULARES ---
+    let draggingBar = null;
+    let startCoord = 0;
+    let initialNum = 0;
+
+    function toggleEditMode() {
+      isEditMode = !isEditMode;
+      const container = document.getElementById('mainPresetContainer');
+      const btnEdit = document.getElementById('btnEdit');
+      const badge = document.getElementById('editStatusBadge');
+      if (isEditMode) {
+        container.classList.remove('view-mode');
+        container.classList.add('edit-mode');
+        btnEdit.innerHTML = `<i class="fa-solid fa-lock-open text-brand-accent"></i> <span class="text-brand-accent">Done</span>`;
+        badge.innerHTML = `🔓 Edit Mode (Drag Bars)`;
+        badge.className = "text-[9px] text-yellow-400 bg-yellow-400/10 px-2 py-0.5 rounded font-mono border border-yellow-400/20";
+      } else {
+        container.classList.add('view-mode');
+        container.classList.remove('edit-mode');
+        btnEdit.innerHTML = `<i class="fa-solid fa-pen-to-square"></i> <span>Edit</span>`;
+        badge.innerHTML = `🔒 Safe Mode`;
+        badge.className = "text-[9px] text-brand-accent bg-brand-accent/10 px-2 py-0.5 rounded font-mono border border-brand-accent/20";
+      }
+    }
+
+    function updateBarVisual(barEl, valStr) {
+      let parsed = parseKnobValue(valStr);
+      let pct = calculatePodBarPercentage(parsed);
+      barEl.querySelector('[data-role="val-badge"]').innerText = valStr;
+      barEl.querySelector('[data-role="bar-fill"]').style.width = `${pct}%`;
+      barEl.dataset.rawVal = valStr;
+    }
+
+    function handleDragStart(e, barEl) {
+      if (!isEditMode) return;
+      let parsed = parseKnobValue(barEl.dataset.rawVal);
+      if (parsed.isTextOnly) return;
+      draggingBar = barEl;
+      startCoord = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
+      initialNum = parsed.num;
+      document.body.style.userSelect = 'none';
+    }
+
+    function handleDragMove(e) {
+      if (!draggingBar || !isEditMode) return;
+      let currentX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
+      let deltaX = currentX - startCoord;
+      let parsed = parseKnobValue(draggingBar.dataset.rawVal);
+      const s = parsed.suffix.toLowerCase();
+
+      let step = ( parsed.num <= 10 && !s.includes('ms') && !s.includes('hz') && !s.includes('%') ) ? 0.08 : 0.5;
+      let newVal = initialNum + (deltaX * step);
+
+      if (s.includes('ms')) newVal = Math.max(0, Math.min(1000, Math.round(newVal)));
+      else if (s.includes('db')) newVal = Math.max(-15, Math.min(15, Number(newVal.toFixed(1))));
+      else if (s.includes('%')) newVal = Math.max(0, Math.min(100, Math.round(newVal)));
+      else newVal = Math.max(0.0, Math.min(10.0, Number(newVal.toFixed(1))));
+
+      const formatted = (!parsed.prefix && !parsed.suffix && newVal <= 10) ? newVal.toFixed(1) : (parsed.prefix + newVal + parsed.suffix);
+      updateBarVisual(draggingBar, formatted);
+    }
+
+    function handleDragEnd() {
+      if (draggingBar && isEditMode && !UNIVERSAL_PRESETS[currentCacheKey]) {
+        let bType = draggingBar.dataset.blockType;
+        let kName = draggingBar.dataset.knobName;
+        let rVal = draggingBar.dataset.rawVal;
+        if (currentCacheKey) {
+          let cached = JSON.parse(localStorage.getItem(currentCacheKey));
+          if (cached && cached.blocks) {
+            let bIdx = cached.blocks.findIndex(b => b.type === bType);
+            if (bIdx !== -1) {
+              cached.blocks[bIdx].knobs[kName] = rVal;
+              localStorage.setItem(currentCacheKey, JSON.stringify(cached));
+            }
+          }
+        }
+      }
+      draggingBar = null;
+      document.body.style.userSelect = '';
+    }
+
+    document.addEventListener('mousemove', handleDragMove);
+    document.addEventListener('mouseup', handleDragEnd);
+    document.addEventListener('touchmove', handleDragMove, { passive: false });
+    document.addEventListener('touchend', handleDragEnd);
+
+    // --- VOTACIÓN INTERACTIVA POR ESTRELLAS (1-5 ★) SINCRONIZADA CON FIRESTORE ---
+    function getActivePresetObject() {
+      if (UNIVERSAL_PRESETS[currentCacheKey]) return UNIVERSAL_PRESETS[currentCacheKey];
+      const localRaw = localStorage.getItem(currentCacheKey);
+      if (localRaw) return JSON.parse(localRaw);
+      return window.globalCloudPresets[currentCacheKey] || null;
+    }
+
+    function renderInteractiveStars(preset) {
+      const container = document.getElementById('ratingStars');
+      if (!container || !preset) return;
+      const currentRating = Number(preset.rating) || 4.9;
+      const votesCount = Number(preset.votesCount) || 1;
+      const roundedStars = Math.round(currentRating);
+
+      let html = '';
+      for (let i = 1; i <= 5; i++) {
+        const isFilled = i <= roundedStars;
+        html += `<i onclick="ratePreset(${i})" class="fa-solid fa-star cursor-pointer hover:scale-125 transition-transform ${isFilled ? 'text-yellow-400' : 'text-slate-700'}"></i>`;
+      }
+      html += `<span class="text-[10px] text-brand-muted font-mono ml-1.5">${currentRating.toFixed(1)} (${votesCount})</span>`;
+      container.innerHTML = html;
+    }
+
+    async function ratePreset(starsGiven) {
+      let preset = getActivePresetObject();
+      if (!preset) return;
+
+      const voteKey = `podgo_voted_${currentCacheKey}`;
+      const prevRating = Number(preset.rating) || 4.9;
+      const prevVotes = Number(preset.votesCount) || 1;
+      const alreadyVoted = localStorage.getItem(voteKey);
+
+      let newVotes = alreadyVoted ? prevVotes : prevVotes + 1;
+      let newRating = alreadyVoted
+        ? ((prevRating * prevVotes) - Number(alreadyVoted) + starsGiven) / prevVotes
+        : ((prevRating * prevVotes) + starsGiven) / newVotes;
+
+      newRating = Math.min(5, Math.max(1, Number(newRating.toFixed(2))));
+      preset.rating = newRating;
+      preset.votesCount = newVotes;
+      localStorage.setItem(voteKey, String(starsGiven));
+
+      renderInteractiveStars(preset);
+
+      if (!UNIVERSAL_PRESETS[currentCacheKey]) {
+        localStorage.setItem(currentCacheKey, JSON.stringify(preset));
+        window.globalCloudPresets[currentCacheKey] = preset;
+        try {
+          if (window.firebaseDb && window.firestoreDoc && window.firestoreSetDoc) {
+            await window.firestoreSetDoc(window.firestoreDoc(window.firebaseDb, "podgo_global_presets", currentCacheKey), {
+              rating: newRating,
+              votesCount: newVotes
+            }, { merge: true });
+          }
+        } catch (e) {}
+      }
+    }
+
+    // --- LIBRARY, FAVORITOS Y BÓVEDA SECRETA DE ADMINISTRADOR (FAUSTO) ---
+    function switchTab(tab) {
+      document.getElementById('viewSearch').classList.add('hidden');
+      document.getElementById('viewLibrary').classList.add('hidden');
+      document.getElementById('navSearch').classList.replace('text-brand-accent', 'text-brand-muted');
+
+      const libBtn = document.getElementById('libraryNavBtn');
+      if (libBtn) libBtn.classList.replace('text-brand-accent', 'text-brand-muted');
+
+      if (tab === 'search') {
+        document.getElementById('viewSearch').classList.remove('hidden');
+        document.getElementById('viewSearch').classList.add('flex');
+        document.getElementById('navSearch').classList.replace('text-brand-muted', 'text-brand-accent');
+      } else if (tab === 'library') {
+        document.getElementById('viewLibrary').classList.remove('hidden');
+        document.getElementById('viewLibrary').classList.add('flex');
+        if (libBtn) libBtn.classList.replace('text-brand-muted', 'text-brand-accent');
+        renderLibrary();
+      }
+    }
+
+    function loadPresetFromLibrary(cacheKey, isUniversal = false) {
+      let presetData = isUniversal
+        ? UNIVERSAL_PRESETS[cacheKey]
+        : (JSON.parse(localStorage.getItem(cacheKey)) || window.globalCloudPresets[cacheKey]);
+      if (presetData) {
+        currentCacheKey = cacheKey;
+        renderPreset(presetData, isUniversal);
+        switchTab('search');
+      }
+    }
+
+    function renderLibrary() {
+      const currentUser = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+      const userEmail = currentUser && currentUser.email ? currentUser.email.toLowerCase() : "";
+      const userUid = currentUser ? currentUser.uid : "guest";
+      const isAdmin = userEmail === "faustolute@gmail.com";
+
+      const featuredContainer = document.getElementById('featuredList');
+      featuredContainer.innerHTML = '';
+      Object.keys(UNIVERSAL_PRESETS).forEach(key => {
+        let p = UNIVERSAL_PRESETS[key];
+        featuredContainer.innerHTML += `
+          <div class="bg-brand-panel border border-brand-border/60 p-3 rounded-xl flex items-center justify-between cursor-pointer hover:bg-brand-card transition-colors" onclick="loadPresetFromLibrary('${key}', true)">
+            <div>
+              <h4 class="text-xs font-bold text-white">${p.title}</h4>
+              <div class="flex items-center gap-2 mt-1">
+                <span class="text-[9px] font-mono text-brand-accent bg-brand-accent/10 px-1.5 rounded border border-brand-accent/20">VERIFIED v2.50</span>
+                <span class="text-[9px] font-mono text-slate-400 uppercase">${p.section || 'main'}</span>
+                <span class="text-[9px] text-yellow-400">★★★★★</span>
+              </div>
+            </div>
+            <i class="fa-solid fa-chevron-right text-brand-muted text-xs"></i>
+          </div>`;
+      });
+
+      const favContainer = document.getElementById('favoritesList');
+      favContainer.innerHTML = '';
+      let hasFavs = false;
+      let allCachedItemsHtml = '';
+      let totalCachedCount = 0;
+
+      for (let i = 0; i < localStorage.length; i++) {
+        let key = localStorage.key(i);
+        if (key && key.startsWith('PODGO_CACHE_')) {
+          try {
+            let p = JSON.parse(localStorage.getItem(key));
+            let isFavForThisUser = Array.isArray(p.favUsers)
+              ? p.favUsers.includes(userUid)
+              : (isAdmin && p.isFav === true);
+
+            if (isFavForThisUser) {
+              hasFavs = true;
+              favContainer.innerHTML += `
+                <div class="bg-brand-panel border border-brand-border/60 p-3 rounded-xl flex items-center justify-between cursor-pointer hover:bg-brand-card transition-colors">
+                  <div class="flex-1" onclick="loadPresetFromLibrary('${key}', false)">
+                    <h4 class="text-xs font-bold text-white truncate max-w-[220px]">${p.title}</h4>
+                    <span class="text-[9px] font-mono text-brand-muted">★ ${(Number(p.rating) || 4.9).toFixed(1)}</span>
+                  </div>
+                  <button onclick="deleteFavorite('${key}')" class="p-2 text-brand-muted hover:text-red-500 transition-colors">
+                    <i class="fa-solid fa-trash text-xs"></i>
+                  </button>
+                </div>`;
+            }
+
+            if (isAdmin) {
+              totalCachedCount++;
+              allCachedItemsHtml += `
+                <div class="bg-brand-panel/70 border border-brand-accent/30 p-3 rounded-xl flex items-center justify-between cursor-pointer hover:bg-brand-card transition-colors" onclick="loadPresetFromLibrary('${key}', false)">
+                  <div>
+                    <h4 class="text-xs font-bold text-white">${p.title}</h4>
+                    <span class="text-[9px] font-mono text-brand-accent">SECTION: ${(p.section || 'main').toUpperCase()}</span>
+                  </div>
+                  <i class="fa-solid fa-unlock-keyhole text-brand-accent text-xs"></i>
+                </div>`;
+            }
+          } catch(e) {}
+        }
+      }
+
+      if (!hasFavs) {
+        favContainer.innerHTML = `<p class="text-[11px] text-brand-muted italic bg-brand-card p-3 rounded-lg border border-brand-border/30">No favorites saved yet. Tap the ❤️ icon on any tone to save it here.</p>`;
+      }
+
+      let adminVaultEl = document.getElementById('adminMasterVault');
+      if (isAdmin) {
+        if (!adminVaultEl) {
+          adminVaultEl = document.createElement('div');
+          adminVaultEl.id = 'adminMasterVault';
+          adminVaultEl.className = 'space-y-3 pt-4 border-t border-brand-accent/30';
+          document.getElementById('viewLibrary').appendChild(adminVaultEl);
+        }
+        adminVaultEl.innerHTML = `
+          <h2 class="text-xs font-bold font-mono text-brand-accent uppercase flex items-center justify-between border-b border-brand-border pb-1">
+            <span><i class="fa-solid fa-vault"></i> Admin Secret Vault (All POD Go Tones)</span>
+            <span class="bg-brand-accent text-white px-1.5 py-0.5 rounded text-[9px]">${totalCachedCount} Tones</span>
+          </h2>
+          <div class="grid grid-cols-1 gap-2.5">
+            ${allCachedItemsHtml || '<p class="text-[11px] text-brand-muted italic">No AI tones in vault yet.</p>'}
+          </div>`;
+      } else if (adminVaultEl) {
+        adminVaultEl.remove();
+      }
+    }
+
+    function toggleFavorite() {
+      if (UNIVERSAL_PRESETS[currentCacheKey]) {
+        alert("Already in your Featured Library.");
+        return;
+      }
+      if (!currentCacheKey) return;
+      let cached = JSON.parse(localStorage.getItem(currentCacheKey));
+      if (!cached) return;
+      const currentUser = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+      const userUid = currentUser ? currentUser.uid : "guest";
+      if (!Array.isArray(cached.favUsers)) cached.favUsers = [];
+      const isCurrentlyFav = cached.favUsers.includes(userUid);
+      if (isCurrentlyFav) {
+        cached.favUsers = cached.favUsers.filter(id => id !== userUid);
+        cached.isFav = false;
+      } else {
+        cached.favUsers.push(userUid);
+        cached.isFav = true;
+      }
+      localStorage.setItem(currentCacheKey, JSON.stringify(cached));
+      updateFavUI(!isCurrentlyFav);
+    }
+
+    function deleteFavorite(key) {
+      if (confirm("Remove from favorites?")) {
+        const currentUser = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+        const userUid = currentUser ? currentUser.uid : "guest";
+        let p = JSON.parse(localStorage.getItem(key));
+        if (Array.isArray(p.favUsers)) p.favUsers = p.favUsers.filter(id => id !== userUid);
+        p.isFav = false;
+        localStorage.setItem(key, JSON.stringify(p));
+        renderLibrary();
+      }
+    }
+
+    function updateFavUI(isFav) {
+      let icon = document.getElementById('favIcon');
+      let btn = document.getElementById('btnFav');
+      if (isFav) {
+        icon.className = "fa-solid fa-heart";
+        btn.classList.add('text-red-500');
+        btn.classList.remove('text-brand-muted');
+      } else {
+        icon.className = "fa-regular fa-heart";
+        btn.classList.remove('text-red-500');
+        btn.classList.add('text-brand-muted');
+      }
+    }
+
+    window.updateLibraryVisibility = function() {
+      const libraryBtn = document.getElementById('libraryNavBtn');
+      if (libraryBtn) {
+        const currentUser = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+        const userEmail = currentUser && currentUser.email ? currentUser.email.toLowerCase() : "";
+        const isAdmin = userEmail === "faustolute@gmail.com";
+        const isUserPro = window.currentUserData && window.currentUserData.isPro === true;
+        libraryBtn.style.display = (!isUserPro && !isAdmin) ? 'none' : 'flex';
+      }
+    };
+
+    function openBpmTool() {
+      const bpm = prompt("Line 6 POD Go Delay Calculator — Enter song BPM:", "120");
+      if (!bpm || isNaN(bpm)) return;
+      const b = Number(bpm);
+      const quarter = Math.round(60000 / b);
+      const dottedEighth = Math.round(quarter * 0.75);
+      const eighth = Math.round(quarter * 0.5);
+      alert(`POD Go Delay Times for ${b} BPM:\n\n• 1/4 Note: ${quarter} ms\n• 1/8 Dotted (U2/Cerati): ${dottedEighth} ms\n• 1/8 Note: ${eighth} ms`);
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      window.updateApiStatus();
+      renderPreset(UNIVERSAL_PRESETS["podgo_univ_soda_ligera"], true);
     });
   </script>
 </body>
