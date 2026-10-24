@@ -1,22 +1,291 @@
-
 <!DOCTYPE html>
 <html lang="es" class="dark">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Community Hub | Line 6 Pod Go Presets</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>LINE 6 POD GO - Community Hub</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Firebase SDK Compat -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            bg: '#080a0f',
+                            panel: '#10141d',
+                            card: '#151b26',
+                            accent: '#ff2a2a',
+                            accentHover: '#dc2626',
+                            text: '#f1f5f9',
+                            muted: '#94a3b8',
+                            border: '#262f40'
+                        }
+                    }
+                }
+            }
+        };
+    </script>
+    <style>
+        body { background-color: #080a0f; color: #f1f5f9; font-family: system-ui, -apple-system, sans-serif; }
+    </style>
 </head>
-<body class="bg-zinc-950 text-zinc-100 min-h-screen flex flex-col items-center justify-center p-6 text-center font-sans">
-  <span class="text-xs uppercase tracking-widest bg-zinc-800 text-zinc-300 px-3 py-1 rounded-full mb-4">
-    Comunidad Global de Guitarristas
-  </span>
-  <h1 class="text-3xl font-extrabold mb-2">Pod Go <span class="text-red-500">Community Hub</span></h1>
-  <p class="text-zinc-400 max-w-md mb-6">
-    Espacio listo para conectar con Firebase Firestore y permitir compartir, votar, comentar y ajustar presets de otros músicos.
-  </p>
-  <a href="index.html" class="text-sm text-zinc-300 hover:text-white underline">
-    ← Volver al Tone Studio
-  </a>
+<body class="min-h-screen pb-24">
+
+    <!-- HEADER LINE 6 POD GO -->
+    <header class="sticky top-0 z-30 bg-[#080a0f]/95 backdrop-blur border-b border-brand-border px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-brand-accent/15 border border-brand-accent/40 flex items-center justify-center text-brand-accent">
+                <i class="fas fa-sliders"></i>
+            </div>
+            <div>
+                <h1 class="font-black text-sm tracking-tight text-white">LINE 6 <span class="text-brand-accent">POD GO</span></h1>
+                <p class="text-[10px] text-brand-muted">Community Hub & v2.50 Preset Forum</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <span id="user-nick-badge" class="text-[10px] bg-brand-accent/10 text-brand-accent border border-brand-accent/30 px-2.5 py-1 rounded-lg font-mono">
+                @guitarrista
+            </span>
+            <a href="index.html" class="text-xs bg-brand-panel hover:bg-brand-border text-gray-300 px-3 py-1.5 rounded-lg border border-brand-border transition">
+                <i class="fas fa-arrow-left mr-1"></i> Volver
+            </a>
+        </div>
+    </header>
+
+    <!-- CONTENIDO PRINCIPAL -->
+    <main class="max-w-xl mx-auto p-4 space-y-4">
+
+        <!-- CAJA DE PUBLICACIÓN -->
+        <div class="bg-brand-card border border-brand-border rounded-2xl p-4 shadow-xl space-y-3">
+            <div class="flex items-center justify-between">
+                <h2 class="text-xs font-bold uppercase tracking-wider text-brand-accent flex items-center gap-2">
+                    <i class="fas fa-comments"></i> Publicar Ajuste o Comentario POD Go
+                </h2>
+                <span id="plan-badge" class="text-[10px] bg-brand-panel text-gray-300 px-2 py-0.5 rounded font-semibold border border-brand-border">
+                    MEMBER
+                </span>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="text-[10px] text-brand-muted block mb-1">Tu Nickname</label>
+                    <input id="post-nick" type="text" placeholder="@tu_nickname" 
+                        class="w-full bg-brand-bg border border-brand-border rounded-xl px-3 py-2 text-xs text-brand-accent font-mono focus:border-brand-accent focus:outline-none">
+                </div>
+                <div>
+                    <label class="text-[10px] text-brand-muted block mb-1">Preset / Canción / Sección</label>
+                    <input id="post-preset" type="text" placeholder="Ej: Like a Stone (Solo) / 01B" 
+                        class="w-full bg-brand-bg border border-brand-border rounded-xl px-3 py-2 text-xs text-white focus:border-brand-accent focus:outline-none">
+                </div>
+            </div>
+
+            <!-- Valoración con decimales opcional -->
+            <div class="flex items-center justify-between bg-brand-bg border border-brand-border/80 rounded-xl px-3 py-2">
+                <span class="text-[11px] text-brand-muted"><i class="fas fa-star text-amber-400 mr-1"></i> Puntuar Tono v2.50:</span>
+                <div class="flex items-center gap-2">
+                    <input id="post-rating" type="range" min="3.5" max="5.0" step="0.1" value="4.9" 
+                        oninput="document.getElementById('rating-val').innerText = parseFloat(this.value).toFixed(1)"
+                        class="w-24 accent-amber-400 cursor-pointer">
+                    <span id="rating-val" class="text-xs font-bold text-amber-400 font-mono w-7 text-right">4.9</span>
+                </div>
+            </div>
+
+            <textarea id="post-text" rows="3" placeholder="Comparte tus ajustes de bloques, perillas rectangulares o snapshots para la Line 6 POD Go..." 
+                class="w-full bg-brand-bg border border-brand-border rounded-xl p-3 text-xs text-white focus:border-brand-accent focus:outline-none"></textarea>
+
+            <button onclick="sendPost()" class="w-full bg-brand-accent hover:bg-brand-accentHover text-white font-extrabold py-2.5 rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-600/20 cursor-pointer">
+                <i class="fas fa-paper-plane"></i> Publicar en Comunidad POD Go
+            </button>
+        </div>
+
+        <!-- MURO DE COMENTARIOS EN VIVO -->
+        <div class="flex items-center justify-between px-1 pt-2">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-brand-muted">Comentarios Recientes de Guitarristas</h3>
+            <span id="post-count" class="text-[10px] text-brand-accent font-mono">En vivo</span>
+        </div>
+
+        <div id="feed-container" class="space-y-3">
+            <!-- Se llena dinámicamente -->
+        </div>
+
+    </main>
+
+    <!-- BARRA DE NAVEGACIÓN INFERIOR -->
+    <nav class="fixed bottom-0 left-0 right-0 bg-brand-panel/95 backdrop-blur border-t border-brand-border px-6 py-2.5 flex justify-around items-center z-40">
+        <a href="index.html" class="flex flex-col items-center text-brand-muted hover:text-brand-accent transition-colors">
+            <i class="fas fa-sliders text-base mb-1"></i>
+            <span class="text-[9px] font-bold">Tone AI</span>
+        </a>
+        <a href="index.html" onclick="switchTab('library')" class="flex flex-col items-center text-brand-muted hover:text-brand-accent transition-colors">
+            <i class="fas fa-book-bookmark text-base mb-1"></i>
+            <span class="text-[9px] font-bold">Library</span>
+        </a>
+        <a href="community.html" class="flex flex-col items-center text-brand-accent">
+            <i class="fas fa-users text-base mb-1"></i>
+            <span class="text-[9px] font-bold">Community</span>
+        </a>
+        <a href="index.html" onclick="openBpmTool()" class="flex flex-col items-center text-brand-muted hover:text-brand-accent transition-colors">
+            <i class="fas fa-calculator text-base mb-1"></i>
+            <span class="text-[9px] font-bold">Tools</span>
+        </a>
+    </nav>
+
+    <script>
+        // Configuración Firebase compartida (misma caja fuerte, colección independiente: line6_podgo_community)
+        const firebaseConfig = {
+            apiKey: "AIzaSyDMZxIgDvBRJNyIZuo3CDwnyvx1INm7LsM",
+            authDomain: "mooer-ai-tone-studio.firebaseapp.com",
+            projectId: "mooer-ai-tone-studio",
+            storageBucket: "mooer-ai-tone-studio.firebasestorage.app",
+            messagingSenderId: "666841738973",
+            appId: "1:666841738973:web:2c0937a5b2a51b143c3534"
+        };
+
+        let db = null;
+        try {
+            if (firebaseConfig.apiKey) {
+                firebase.initializeApp(firebaseConfig);
+                db = firebase.firestore();
+            }
+        } catch (e) { console.log("Modo híbrido local activado"); }
+
+        function initUser() {
+            const savedNick = localStorage.getItem('podgo_comm_nick') || '';
+            const isPro = localStorage.getItem('podgo_pro_status') === 'true';
+
+            let nick = savedNick || '@fausto_podgo';
+            document.getElementById('post-nick').value = nick;
+            document.getElementById('user-nick-badge').innerText = nick;
+            
+            const planBadge = document.getElementById('plan-badge');
+            if (isPro) {
+                planBadge.innerHTML = '👑 PRO VIP';
+                planBadge.className = 'text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded font-bold';
+            } else {
+                planBadge.innerHTML = '🎸 POD GO MEMBER';
+            }
+
+            if (firebase.apps.length > 0) {
+                firebase.auth().onAuthStateChanged(user => {
+                    if (user && user.email) {
+                        const emailNick = '@' + user.email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
+                        document.getElementById('post-nick').value = emailNick;
+                        document.getElementById('user-nick-badge').innerText = emailNick;
+                        localStorage.setItem('podgo_comm_nick', emailNick);
+                    }
+                });
+            }
+        }
+
+        const defaultPosts = [
+            {
+                nick: "@fausto_ai",
+                isPro: true,
+                preset: "Line 6 POD Go - Bienvenida v2.50",
+                rating: "5.0",
+                text: "¡Bienvenidos al Community Hub oficial de la Line 6 POD Go! Aquí pueden compartir sus ajustes de perillas rectangulares, instantáneas (Snapshots) o parches de estudio.",
+                date: "Fijado"
+            },
+            {
+                nick: "@tom_morello_fan",
+                isPro: false,
+                preset: "Audioslave - Like a Stone (Solo)",
+                rating: "4.9",
+                text: "Para el solo usen el bloque Pitch Wham configurado a +2 Octavas en el EXP 1 y el Brit 2203 con ganancia en 7.2. ¡Suena idéntico al disco!",
+                date: "Hace 1 h"
+            }
+        ];
+
+        function renderPosts(posts) {
+            const container = document.getElementById('feed-container');
+            container.innerHTML = posts.map(p => `
+                <div class="bg-brand-card border border-brand-border rounded-2xl p-4 space-y-2 shadow-md">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-bold text-brand-accent font-mono">${p.nick}</span>
+                            ${p.isPro 
+                                ? '<span class="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded font-bold">PRO VIP</span>' 
+                                : '<span class="text-[9px] bg-brand-panel text-brand-muted px-1.5 py-0.5 rounded border border-brand-border">MEMBER</span>'}
+                        </div>
+                        <span class="text-[10px] text-brand-muted">${p.date || 'Reciente'}</span>
+                    </div>
+                    <div class="flex items-center justify-between bg-brand-bg px-2.5 py-1.5 rounded-lg border border-brand-border/60">
+                        <span class="text-[11px] font-semibold text-gray-200"><i class="fas fa-sliders text-brand-accent mr-1.5"></i>${p.preset || 'General POD Go'}</span>
+                        <span class="text-xs font-bold text-amber-400 font-mono"><i class="fas fa-star mr-1"></i>${parseFloat(p.rating || 4.9).toFixed(1)}</span>
+                    </div>
+                    <p class="text-xs text-gray-200 leading-relaxed whitespace-pre-line pt-1">${p.text}</p>
+                </div>
+            `).join('');
+        }
+
+        function loadPosts() {
+            if (db) {
+                db.collection('line6_podgo_community').orderBy('timestamp', 'desc').limit(50).onSnapshot(snap => {
+                    const cloudPosts = [];
+                    snap.forEach(doc => cloudPosts.push(doc.data()));
+                    renderPosts([...cloudPosts, ...defaultPosts]);
+                }, err => {
+                    const local = JSON.parse(localStorage.getItem('podgo_comm_posts') || '[]');
+                    renderPosts([...local, ...defaultPosts]);
+                });
+            } else {
+                const local = JSON.parse(localStorage.getItem('podgo_comm_posts') || '[]');
+                renderPosts([...local, ...defaultPosts]);
+            }
+        }
+
+        async function sendPost() {
+            const nickInput = document.getElementById('post-nick');
+            const presetInput = document.getElementById('post-preset');
+            const ratingInput = document.getElementById('post-rating');
+            const textInput = document.getElementById('post-text');
+
+            let nick = nickInput.value.trim() || '@guitarrista';
+            if (!nick.startsWith('@')) nick = '@' + nick;
+            localStorage.setItem('podgo_comm_nick', nick);
+
+            const text = textInput.value.trim();
+            if (!text) return alert('Escribe tu comentario o ajuste antes de publicar 🎸');
+
+            const newPost = {
+                nick: nick,
+                isPro: localStorage.getItem('podgo_pro_status') === 'true',
+                preset: presetInput.value.trim() || 'General POD Go v2.50',
+                rating: parseFloat(ratingInput.value).toFixed(1),
+                text: text,
+                date: 'Ahora mismo',
+                timestamp: Date.now()
+            };
+
+            if (db) {
+                try {
+                    await db.collection('line6_podgo_community').add(newPost);
+                } catch (e) {
+                    fallbackLocalPost(newPost);
+                }
+            } else {
+                fallbackLocalPost(newPost);
+            }
+
+            textInput.value = '';
+            presetInput.value = '';
+        }
+
+        function fallbackLocalPost(newPost) {
+            const local = JSON.parse(localStorage.getItem('podgo_comm_posts') || '[]');
+            local.unshift(newPost);
+            localStorage.setItem('podgo_comm_posts', JSON.stringify(local));
+            loadPosts();
+        }
+
+        initUser();
+        loadPosts();
+    </script>
 </body>
 </html>
