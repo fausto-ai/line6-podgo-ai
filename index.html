@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
+  <meta name="google-site-verification" content="qj5xwtUOyglEfxxDf1hg-auK39f_Fo1MZeZgFcxk2_U" />
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>LINE 6 POD GO Pro AI Tone Studio v2.50</title>
+  <title>LINE 6 POD GO Pro AI Tone Studio v9.5 (Firmware v2.50)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
@@ -36,7 +37,7 @@
     body { background-color: #080a0f; color: #f1f5f9; -webkit-tap-highlight-color: transparent; }
     .hide-scrollbar::-webkit-scrollbar { display: none; }
 
-    /* Barras Rectangulares Estilo Pantalla LCD Line 6 POD Go */
+    /* Barras Rectangulares Horizontales Estilo Pantalla LCD Line 6 POD Go */
     .pod-bar-widget { user-select: none; touch-action: none; }
     .pod-bar-track {
       position: relative;
@@ -48,21 +49,27 @@
     .pod-bar-fill {
       height: 100%;
       transition: width 0.15s ease-out;
-      border-right: 2px solid rgba(255, 255, 255, 0.9);
+      border-right: 2px solid rgba(255, 255, 255, 0.92);
     }
     .edit-mode .pod-bar-track {
-      box-shadow: 0 0 8px rgba(255, 42, 42, 0.35);
-      outline: 1px solid rgba(255, 255, 255, 0.25);
+      box-shadow: 0 0 8px rgba(255, 42, 42, 0.45);
+      outline: 1px solid rgba(255, 255, 255, 0.3);
     }
     .edit-mode .pod-bar-widget { cursor: ew-resize !important; }
     .view-mode .pod-bar-widget { cursor: default !important; }
+
+    @keyframes pulseGold {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.35); }
+      50% { box-shadow: 0 0 12px 2px rgba(251, 191, 36, 0.55); }
+    }
+    .pro-glow { animation: pulseGold 2.8s infinite; }
   </style>
 
-  <!-- FIREBASE SECURITY GUARD, GLOBAL VAULT & SMART SYNC -->
+  <!-- FIREBASE SECURITY GUARD, GLOBAL VAULT (OPCIÓN B AISLADA POR PREFIJO PODGO_CACHE_) & SMART SYNC -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
     import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js";
-    import { getFirestore, doc, getDoc, setDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js";
+    import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyDMZxIgDvBRJNyIZuo3CDwnyvx1INm7LsM",
@@ -82,6 +89,7 @@
     window.firestoreDoc = doc;
     window.firestoreGetDoc = getDoc;
     window.firestoreSetDoc = setDoc;
+    window.firestoreDeleteDoc = deleteDoc;
     window.firestoreCollection = collection;
     window.firestoreGetDocs = getDocs;
 
@@ -93,16 +101,24 @@
       if (!user) {
         window.location.href = "login.html";
       } else {
-        const isAdmin = user.email && user.email.toLowerCase() === "faustolute@gmail.com";
+        const emailLower = user.email ? user.email.toLowerCase() : "";
+        const isAdmin = emailLower === "faustolute@gmail.com";
+
+        if (emailLower) {
+          localStorage.setItem("podgo_user_email", emailLower);
+        }
 
         const keyBtn = document.getElementById('keyBtn');
         if (keyBtn) {
           keyBtn.style.display = isAdmin ? 'inline-flex' : 'none';
         }
 
-        // 1. Perfil del usuario
+        // 1. Perfil del usuario + Retorno VIP Automático de Stripe (?pro_activated=true)
         const userRef = doc(db, "users", user.uid);
         try {
+          const urlParams = new URLSearchParams(window.location.search);
+          const activatedFromStripe = urlParams.get('pro_activated') === 'true';
+
           const userSnap = await getDoc(userRef);
           if (userSnap.exists()) {
             window.currentUserData = userSnap.data();
@@ -116,6 +132,14 @@
             };
             await setDoc(userRef, window.currentUserData);
           }
+
+          if (activatedFromStripe && !window.currentUserData.isPro) {
+            window.currentUserData.isPro = true;
+            await setDoc(userRef, { isPro: true, proUpdatedAt: new Date().toISOString() }, { merge: true });
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+
+          localStorage.setItem("podgo_pro_status", window.currentUserData.isPro ? "true" : "false");
           if (typeof window.updateLibraryVisibility === 'function') {
             window.updateLibraryVisibility();
           }
@@ -143,16 +167,24 @@
           console.warn("No se pudo leer config global:", e);
         }
 
-        // 3. Sincronizar el Banco Secreto Global de Tonos exclusivo de Line 6 POD Go
+        // 3. OPCIÓN B: Sincronizar global_presets filtrando ESTRICTAMENTE solo documentos PODGO_CACHE_
         try {
-          const presetsCol = collection(db, "podgo_global_presets");
+          const presetsCol = collection(db, "global_presets");
           const snapshot = await getDocs(presetsCol);
           snapshot.forEach(docSnap => {
+            if (!docSnap.id.startsWith('PODGO_CACHE_')) return; // Ignora por completo los tonos de la MOOER GE300
             const data = docSnap.data();
             window.globalCloudPresets[docSnap.id] = data;
             const existingLocal = localStorage.getItem(docSnap.id);
             if (!existingLocal) {
               localStorage.setItem(docSnap.id, JSON.stringify({ ...data, isFav: false, favUsers: [] }));
+            } else {
+              try {
+                const parsedLocal = JSON.parse(existingLocal);
+                parsedLocal.rating = data.rating || parsedLocal.rating || 4.9;
+                parsedLocal.votesCount = data.votesCount || parsedLocal.votesCount || 1;
+                localStorage.setItem(docSnap.id, JSON.stringify(parsedLocal));
+              } catch (err) {}
             }
           });
 
@@ -163,7 +195,7 @@
                 try {
                   let localPreset = JSON.parse(localStorage.getItem(k));
                   if (localPreset && localPreset.title) {
-                    await setDoc(doc(db, "podgo_global_presets", k), localPreset, { merge: true });
+                    await setDoc(doc(db, "global_presets", k), localPreset, { merge: true });
                     window.globalCloudPresets[k] = localPreset;
                   }
                 } catch (err) {}
@@ -171,7 +203,7 @@
             }
           }
         } catch (e) {
-          console.warn("Error sincronizando banco global POD Go:", e);
+          console.warn("Error sincronizando banco global de tonos POD Go:", e);
         }
       }
     });
@@ -193,8 +225,8 @@
 </head>
 <body class="flex flex-col h-[100dvh] overflow-hidden font-sans">
 
-  <!-- TOP HEADER -->
-  <header class="bg-brand-panel border-b border-brand-border px-4 py-3 flex items-center justify-between shrink-0 z-10">
+  <!-- TOP HEADER CON BOTÓN ELEGANTE PRO -->
+  <header class="bg-brand-panel border-b border-brand-border px-3.5 py-3 flex items-center justify-between shrink-0 z-10">
     <div class="flex items-center gap-2.5">
       <div class="w-8 h-8 rounded-lg bg-brand-accent/15 border border-brand-accent/40 flex items-center justify-center text-brand-accent shrink-0">
         <i class="fa-solid fa-guitar text-sm"></i>
@@ -210,19 +242,24 @@
       <button type="button" onclick="toggleApiKeyModal()" title="Configure Master API Key" style="display:none;" class="p-2 rounded-lg bg-brand-border/40 hover:bg-brand-border text-brand-text transition-colors cursor-pointer" id="keyBtn">
         <i class="fa-solid fa-key text-xs" id="keyIcon"></i>
       </button>
-      <span class="text-[10px] font-mono text-brand-accent font-bold bg-brand-accent/10 px-2.5 py-1 rounded-md border border-brand-accent/30 whitespace-nowrap">AI STUDIO</span>
-      <button id="logout-btn" class="text-xs text-brand-muted hover:text-brand-accent flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-colors whitespace-nowrap">
-        <i class="fa-solid fa-right-from-bracket"></i> <span class="hidden sm:inline">Sign Out</span>
+
+      <a href="premium.html" id="headerProBtn" class="pro-glow text-[10px] font-mono font-extrabold bg-gradient-to-r from-amber-400 via-yellow-300 to-red-500 text-slate-950 px-2.5 py-1 rounded-lg flex items-center gap-1 whitespace-nowrap shadow-md hover:brightness-110 transition-all">
+        <i class="fa-solid fa-crown text-[10px]"></i>
+        <span id="headerProText">GO PRO</span>
+      </a>
+
+      <button id="logout-btn" class="text-xs text-brand-muted hover:text-brand-accent flex items-center gap-1 px-2 py-1.5 rounded-lg transition-colors whitespace-nowrap" title="Sign Out">
+        <i class="fa-solid fa-right-from-bracket"></i>
       </button>
     </div>
   </header>
-
+  
   <!-- VIEW: TONE AI SEARCH & LCD DISPLAY -->
   <div id="viewSearch" class="flex flex-col flex-1 overflow-hidden">
     <section class="p-3.5 bg-brand-panel/60 border-b border-brand-border shrink-0">
       <form id="aiToneForm" class="relative flex items-center">
         <i class="fa-solid fa-wand-magic-sparkles absolute left-3.5 text-brand-accent text-xs"></i>
-        <input type="text" id="toneSearchInput" placeholder="Search song + section (e.g. like a stone solo)..." class="w-full bg-brand-bg text-xs text-brand-text placeholder-brand-muted pl-9 pr-24 py-2.5 rounded-xl border border-brand-border focus:outline-none focus:border-brand-accent transition-opacity" required />
+        <input type="text" id="toneSearchInput" placeholder="Search song + section (e.g. iron maiden the trooper)..." class="w-full bg-brand-bg text-xs text-brand-text placeholder-brand-muted pl-9 pr-24 py-2.5 rounded-xl border border-brand-border focus:outline-none focus:border-brand-accent transition-opacity" required />
         <button type="submit" id="searchBtn" class="absolute right-1 bg-brand-accent hover:bg-brand-accentHover text-white font-bold text-xs px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer min-w-[78px] justify-center shadow-md shadow-red-600/20">
           <span id="btnText">Search</span>
           <i id="btnIcon" class="fa-solid fa-arrow-right text-[10px]"></i>
@@ -232,20 +269,18 @@
 
     <main class="flex-1 overflow-y-auto p-3.5 pb-12 space-y-4 hide-scrollbar view-mode" id="mainPresetContainer">
       <div class="bg-brand-card rounded-2xl border border-brand-border p-4 space-y-4 shadow-xl shadow-black/40">
-
-        <!-- LCD TOP BAR (Idéntica a la foto de la Line 6 POD Go) -->
+        <!-- LCD TOP BAR -->
         <div class="border-b border-brand-border/70 pb-3 space-y-2.5">
           <div class="flex items-start justify-between gap-2">
             <div>
               <div class="flex items-center gap-2">
-                <span class="text-[10px] font-mono bg-brand-accent/15 text-brand-accent border border-brand-accent/30 px-1.5 py-0.5 rounded font-bold" id="presetBank">01A</span>
-                <span class="text-[10px] font-mono bg-white/5 text-slate-300 border border-white/10 px-1.5 py-0.5 rounded font-bold flex items-center gap-1" id="snapshotBadge">
-                  <i class="fa-solid fa-camera text-[9px] text-brand-accent"></i> <span id="presetSectionTag">SNAP 1</span>
+                <span class="text-[9px] font-mono bg-brand-accent/15 text-brand-accent border border-brand-accent/30 px-1.5 py-0.5 rounded font-bold" id="presetBank">01A</span>
+                <span class="text-[9px] font-mono bg-white/5 text-slate-300 border border-white/10 px-1.5 py-0.5 rounded font-bold flex items-center gap-1">
+                  <i class="fa-solid fa-camera text-[8px] text-brand-accent"></i> <span id="presetSectionTag">MAIN</span>
                 </span>
               </div>
-              <h2 class="text-base font-extrabold text-white mt-1.5 leading-tight tracking-tight" id="songTitle">SODA STEREO - MÚSICA LIGERA</h2>
+              <h2 class="text-base font-extrabold text-white mt-1.5 leading-tight tracking-tight" id="songTitle">Studio Master Preset</h2>
             </div>
-
             <div class="flex items-center gap-1.5 shrink-0 bg-brand-bg/70 p-1 rounded-lg border border-brand-border/50">
               <button id="btnEdit" onclick="toggleEditMode()" class="px-2.5 py-1.5 rounded-md text-[10px] font-bold text-brand-muted hover:bg-brand-border/50 transition-colors flex items-center gap-1.5">
                 <i class="fa-solid fa-pen-to-square"></i> <span>Edit</span>
@@ -257,7 +292,6 @@
             </div>
           </div>
 
-          <!-- Stars + Safe Mode -->
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-1 text-brand-muted text-xs" id="ratingStars"></div>
             <span class="text-[9px] text-brand-accent bg-brand-accent/10 px-2 py-0.5 rounded font-mono border border-brand-accent/20" id="editStatusBadge">🔒 Safe Mode</span>
@@ -266,42 +300,50 @@
           <p class="text-[11px] text-brand-muted leading-relaxed" id="soundDescription">Ready. Search any guitar tone above.</p>
         </div>
 
-        <!-- UPPER PICKUPS & INPUT GATE -->
-        <div class="grid grid-cols-2 gap-2.5 bg-brand-bg/70 p-2.5 rounded-xl border border-brand-border/50 text-[11px]">
-          <div class="flex items-center gap-2.5">
-            <i class="fa-solid fa-sliders text-brand-accent"></i>
+        <!-- PICKUPS, INPUT GATE & COMMUNITY BAR -->
+        <div class="grid grid-cols-3 gap-2 bg-brand-bg/70 p-2.5 rounded-xl border border-brand-border/50 text-[11px]">
+          <div class="flex items-center gap-2 min-w-0">
+            <i class="fa-solid fa-sliders text-brand-accent shrink-0"></i>
             <div class="min-w-0">
               <span class="block text-brand-muted text-[9px] uppercase font-bold">Pickups</span>
               <span class="font-bold text-white truncate block" id="pickupRec">Bridge</span>
             </div>
           </div>
-          <div class="flex items-center gap-2.5 border-l border-brand-border/50 pl-2.5">
-            <i class="fa-solid fa-shield-halved text-brand-accent"></i>
+          <div class="flex items-center gap-2 border-l border-brand-border/50 pl-2 min-w-0">
+            <i class="fa-solid fa-shield-halved text-brand-accent shrink-0"></i>
             <div class="min-w-0">
               <span class="block text-brand-muted text-[9px] uppercase font-bold">Input Gate</span>
               <span class="font-mono font-bold text-white truncate block" id="inputGateRec">-45.0dB / 30%</span>
             </div>
           </div>
+          <div class="flex items-center gap-2 border-l border-brand-border/50 pl-2 min-w-0">
+            <i class="fa-solid fa-comments text-brand-accent shrink-0"></i>
+            <div class="min-w-0">
+              <span class="block text-brand-muted text-[9px] uppercase font-bold">Community</span>
+              <a href="community.html" class="font-semibold text-brand-accent hover:underline text-[10px] truncate block">Forum →</a>
+            </div>
+          </div>
         </div>
 
-        <!-- MINI VISUAL SIGNAL CHAIN BAR (Como la fila superior de iconos de la pantalla Line 6) -->
+        <!-- MINI VISUAL SIGNAL CHAIN BAR (Iconos Superiores de Pantalla LCD Line 6) -->
         <div class="bg-[#05070b] border border-brand-border/60 rounded-xl px-3 py-2 flex items-center justify-between gap-1 overflow-x-auto hide-scrollbar" id="miniSignalChain"></div>
 
-        <!-- POD GO LCD BLOCKS CONTAINER (CON BARRAS RECTANGULARES REALES) -->
+        <!-- POD GO LCD BLOCKS CONTAINER -->
         <div class="space-y-3">
-          <h3 class="text-[11px] font-mono uppercase text-brand-muted font-bold flex items-center justify-between">
-            <span class="flex items-center gap-1.5"><i class="fa-solid fa-microchip text-brand-accent"></i> POD Go v2.50 LCD Parameters</span>
-            <span class="text-[9px] text-slate-500 font-normal">Rectangular Bar View</span>
-          </h3>
+          <div class="flex items-center justify-between">
+            <h3 class="text-[11px] font-mono uppercase text-brand-muted font-bold flex items-center gap-1.5">
+              <i class="fa-solid fa-microchip text-brand-accent"></i> POD Go v2.50 Hardware Chain
+            </h3>
+            <span class="text-[9px] font-mono text-brand-accent/90" id="blockCountBadge">Full Rig</span>
+          </div>
           <div id="effectBlocksContainer" class="space-y-3"></div>
         </div>
 
-        <!-- BOTTOM BRIEF ASSIGNMENTS (FOOTSWITCHES, EXP & SNAPSHOTS) -->
+        <!-- BOTTOM STOMP, EXP & SNAPSHOT ASSIGNMENTS -->
         <div class="bg-brand-bg/90 rounded-xl p-3 border border-brand-border/60 text-[11px] space-y-1.5 mt-2">
           <span class="block font-mono text-[9px] uppercase font-bold text-brand-accent">Stomp, EXP & Snapshot Assignments</span>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-slate-300 font-mono text-[10px]" id="ctrlAssignments"></div>
         </div>
-
       </div>
     </main>
   </div>
@@ -324,7 +366,7 @@
     </div>
   </div>
 
-  <!-- MODAL API KEY (SOLO VISIBLE PARA FAUSTO ADMIN) -->
+  <!-- MODAL API (SOLO ADMIN) -->
   <div id="apiKeyModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
     <div class="bg-brand-card border border-brand-border rounded-2xl p-4 w-full max-w-sm space-y-3">
       <div class="flex items-center justify-between border-b border-brand-border pb-2">
@@ -336,10 +378,10 @@
         </button>
       </div>
       <p class="text-[11px] text-brand-muted leading-relaxed">
-        Saving this key syncs it to Firestore (`app_config/ai_engine`) so all user devices generate POD Go tones automatically.
+        Saving this key syncs it to Firestore so all user devices can generate tones automatically.
       </p>
       <input type="password" id="apiKeyInput" placeholder="Paste key here..." class="w-full bg-brand-bg text-xs font-mono text-brand-text p-2.5 rounded-xl border border-brand-border focus:outline-none focus:border-brand-accent" />
-      <button type="button" onclick="saveApiKey()" class="w-full bg-brand-accent text-white font-bold text-xs py-2.5 rounded-xl hover:bg-brand-accentHover cursor-pointer">
+      <button type="button" onclick="saveApiKey()" class="w-full bg-brand-accent text-white font-bold text-xs py-2 rounded-xl hover:bg-brand-accentHover cursor-pointer">
         Save & Sync to Cloud
       </button>
     </div>
@@ -349,7 +391,7 @@
   <div id="confirmIaModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
     <div class="bg-brand-card border border-brand-border rounded-2xl p-5 w-full max-w-sm space-y-4 shadow-2xl">
       <div class="flex items-center gap-3 border-b border-brand-border pb-3">
-        <div class="w-10 h-10 rounded-full bg-red-500/20 border border-red-500/30 flex items-center justify-center text-red-400 shrink-0">
+        <div class="w-10 h-10 rounded-full bg-brand-accent/20 border border-brand-accent/30 flex items-center justify-center text-brand-accent shrink-0">
           <i class="fa-solid fa-cloud-arrow-down text-lg"></i>
         </div>
         <div>
@@ -358,9 +400,9 @@
         </div>
       </div>
       <p class="text-xs text-brand-muted leading-relaxed">
-        This specific song or section is not in the global vault yet. Would you like the Cloud AI Engine to build it using the official Line 6 POD Go v2.50 Manual?
+        This specific song or section is not in the global vault yet. Would you like the Cloud AI Engine to build the complete multi-block rig from scratch?
         <br><br>
-        <span class="text-brand-accent font-semibold"><i class="fa-solid fa-bolt"></i> Flash Turbo Engine (2 to 4 sec).</span>
+        <span class="text-brand-accent font-semibold"><i class="fa-solid fa-bolt"></i> Flash Turbo Engine (Dynamic Hardware Blocks v2.50).</span>
       </p>
       <div class="flex gap-3 pt-2">
         <button type="button" onclick="cancelIaGeneration()" class="flex-1 bg-brand-panel border border-brand-border text-white font-bold text-xs py-2.5 rounded-xl hover:bg-brand-border transition-colors">
@@ -384,7 +426,7 @@
         <p class="text-xs text-brand-muted mt-1">You've used your 3 free AI tone generations.</p>
       </div>
       <p class="text-xs text-brand-text leading-relaxed bg-brand-bg/60 p-3 rounded-xl border border-brand-border/60">
-        Upgrade to <span class="text-brand-accent font-bold">POD GO AI Pro</span> for unlimited cloud tones, custom rectangular slider editing, and full library access.
+        Upgrade to <span class="text-brand-accent font-bold">POD GO AI Pro</span> for unlimited cloud tones, custom rectangular slider editing, and full community library access.
       </p>
       <div class="space-y-2 pt-2">
         <button type="button" onclick="window.location.href='premium.html'" class="w-full bg-brand-accent text-white font-bold text-xs py-3 rounded-xl hover:bg-brand-accentHover transition-colors cursor-pointer flex items-center justify-center gap-2">
@@ -397,39 +439,48 @@
     </div>
   </div>
 
-  <!-- BOTTOM NAVIGATION BAR -->
-  <nav class="bg-brand-panel border-t border-brand-border px-4 py-2 flex justify-around shrink-0 text-center z-20 w-full relative">
-    <button class="flex flex-col items-center gap-0.5 text-brand-accent w-16" id="navSearch" onclick="switchTab('search')">
+  <!-- BOTTOM NAVIGATION BAR CON 5 BOTONES (INCLUYE GO PRO) -->
+  <nav class="bg-brand-panel border-t border-brand-border px-2 py-2 flex justify-around items-center shrink-0 text-center z-20 w-full relative">
+    <button class="flex flex-col items-center gap-0.5 text-brand-accent w-14" id="navSearch" onclick="switchTab('search')">
       <i class="fa-solid fa-sliders text-base"></i>
       <span class="text-[9px] font-bold">Tone AI</span>
     </button>
-
-    <button id="libraryNavBtn" class="flex flex-col items-center gap-0.5 text-brand-muted hover:text-brand-text transition-colors w-16" onclick="switchTab('library')">
+    
+    <button id="libraryNavBtn" class="flex flex-col items-center gap-0.5 text-brand-muted hover:text-brand-text transition-colors w-14" onclick="switchTab('library')">
       <i class="fa-solid fa-book-bookmark text-base"></i>
       <span class="text-[9px] font-bold">Library</span>
     </button>
 
-    <a href="community.html" class="flex flex-col items-center gap-0.5 text-brand-muted hover:text-brand-text transition-colors w-16">
+    <a href="community.html" class="flex flex-col items-center gap-0.5 text-brand-muted hover:text-brand-text transition-colors w-14">
       <i class="fa-solid fa-users text-base"></i>
       <span class="text-[9px] font-bold">Community</span>
     </a>
 
-    <button class="flex flex-col items-center gap-0.5 text-brand-muted hover:text-brand-text transition-colors w-16" onclick="openBpmTool()">
+    <button class="flex flex-col items-center gap-0.5 text-brand-muted hover:text-brand-text transition-colors w-14" onclick="openBpmTool()">
       <i class="fa-solid fa-calculator text-base"></i>
       <span class="text-[9px] font-bold">Tools</span>
     </button>
+
+    <a href="premium.html" id="bottomProBtn" class="flex flex-col items-center gap-0.5 text-amber-400 hover:text-amber-300 transition-transform hover:scale-105 w-14">
+      <div class="w-7 h-6 rounded-lg bg-amber-400/15 border border-amber-400/40 flex items-center justify-center">
+        <i class="fa-solid fa-crown text-xs text-amber-400"></i>
+      </div>
+      <span class="text-[9px] font-extrabold tracking-tight" id="bottomProText">Go Pro</span>
+    </a>
   </nav>
 
   <!-- ========================================================================= -->
-  <!-- CEREBRO LINE 6 POD GO v2.50 + BARRAS LCD RECTANGULARES + BÓVEDA INTELIGENTE -->
+  <!-- CATÁLOGO 100% REAL LINE 6 POD GO v2.50 NUMERADO + MOTOR DINÁMICO          -->
   <!-- ========================================================================= -->
   <script>
-    const BLOCK_ORDER = ["WAH", "PITCH", "DYN", "DIST", "AMP", "CAB", "EQ", "MOD", "DELAY", "REVERB"];
+    const BLOCK_ORDER = ["WAH", "PITCH", "FILTER", "DYN", "DIST", "AMP", "CAB", "EQ", "MOD", "DELAY", "REVERB"];
+    const m = (n, k) => ({ name: n, knobs: () => ({ ...k }) });
 
-    // Colores Oficiales de Bloques en la Pantalla LCD de Line 6 POD Go
+    // Colores Oficiales de cada Bloque en la Pantalla LCD de la Line 6 POD Go
     const POD_BLOCK_COLORS = {
       WAH:    { hex: "#a855f7", label: "Wah",        bgHeader: "rgba(168, 85, 247, 0.16)" },
       PITCH:  { hex: "#a855f7", label: "Pitch",      bgHeader: "rgba(168, 85, 247, 0.16)" },
+      FILTER: { hex: "#a855f7", label: "Filter",     bgHeader: "rgba(168, 85, 247, 0.16)" },
       DYN:    { hex: "#eab308", label: "Dynamics",   bgHeader: "rgba(234, 179, 8, 0.16)" },
       DIST:   { hex: "#f97316", label: "Distortion", bgHeader: "rgba(249, 115, 22, 0.16)" },
       AMP:    { hex: "#ef4444", label: "Amp",        bgHeader: "rgba(239, 68, 68, 0.20)" },
@@ -440,101 +491,387 @@
       REVERB: { hex: "#fb7185", label: "Reverb",     bgHeader: "rgba(251, 113, 133, 0.16)" }
     };
 
-    // CATÁLOGO COMPLETO EXTRAÍDO DEL MANUAL LINE 6 POD GO v2.50
-    const PODGO_CATALOG = {
-      AMP: [
-        "WhoWatt 100", "Soup Pro", "Stone Age 185", "Voltage Queen", "Tweed Blues Nrm", "Tweed Blues Brt",
-        "Fullerton Nrm", "Fullerton Brt", "Fullerton Jump", "Grammatico Nrm", "Grammatico Brt", "Grammatico Jump",
-        "US Small Tweed", "US Princess", "US Super Nrm", "US Super Vib", "US Deluxe Nrm", "US Deluxe Vib",
-        "US Double Nrm", "US Double Vib", "Mail Order Twin", "Divided Duo", "Interstate Zed", "Derailed Ingrid",
-        "Jazz Rivet 120", "Essex A15", "Essex A30", "A30 Fawn Nrm", "A30 Fawn Brt",
-        "Matchstick Ch1", "Matchstick Ch2", "Matchstick Jump", "Mandarin 80",
-        "Brit J45 Nrm", "Brit J45 Brt", "Brit Trem Nrm", "Brit Trem Brt", "Brit Trem Jump",
-        "Brit Plexi Nrm", "Brit Plexi Brt", "Brit Plexi Jump", "Brit P75 Nrm", "Brit P75 Brt",
-        "Brit 2203", "Brit 2204", "Placater Clean", "Placater Dirty", "Cartographer",
-        "German Xtra Blue", "German Xtra Red", "German Mahadeva", "German Ubersonic",
-        "Cali Texas Ch 1", "Cali Texas Ch 2", "Cali IV Rhythm 1", "Cali IV Rhythm 2", "Cali IV Lead",
-        "Cali Rectifire", "Archetype Clean", "Archetype Lead", "ANGL Meteor",
-        "Solo Lead Clean", "Solo Lead Crunch", "Solo Lead OD", "PV Panama",
-        "Revv Gen Purple", "Revv Gen Red", "Das Benzin Mega", "Das Benzin Lead",
-        "Line 6 Clarity", "Line 6 Aristocrat", "Line 6 Carillon", "Line 6 Voltage",
-        "Line 6 Kinetic", "Line 6 Oblivion", "Line 6 Elektrik", "Line 6 Doom",
-        "Line 6 Epic", "Line 6 2204 Mod", "Line 6 Fatality", "Line 6 Litigator", "Line 6 Badonk"
-      ],
-      CAB: [
-        "Soup Pro Ellipse", "1x8 Small Tweed", "1x10 US Princess", "1x12 Fullerton", "1x12 Grammatico",
-        "1x12 US Deluxe", "1x12 Open Cast", "1x12 Open Cream", "1x12 Cali EXT", "1x12 Cali IV",
-        "1x12 Blue Bell", "2x12 Blue Bell", "2x12 Silver Bell", "2x12 Match H30", "2x12 Match G25",
-        "2x12 Double C12N", "2x12 Interstate", "2x12 Jazz Rivet", "2x12 Mail C12Q", "2x12 Mandarin30",
-        "4x10 Tweed P10R", "4x10 US Super", "4x12 WhoWatt", "4x12 Greenback20", "4x12 Greenback25",
-        "4x12 Greenback30", "4x12 1960A T75", "4x12 Blackback30", "4x12 Brit V30", "4x12 Cali V30",
-        "4x12 Mandarin EM", "4x12 MOO)))N T75", "4x12 Cartog Guv", "4x12 Cartog C90",
-        "4x12 Uber T75", "4x12 Uber V30", "4x12 XXL V30", "4x12 SoloLead EM"
-      ],
-      MIC: [
-        "57 Dynamic", "421 Dynamic", "7 Dynamic", "906 Dynamic", "30 Dynamic",
-        "121 Ribbon", "160 Ribbon", "4038 Ribbon", "84 Ribbon", "414 Cond", "47 Cond FET", "67 Cond"
-      ],
-      DIST: [
-        "Kinky Boost", "Deranged Master", "Minotaur", "Teemah!", "Heir Apparent", "Alpaca Rouge",
-        "Compulsive Drive", "Dhyana Drive", "Horizon Drive", "Valve Driver", "Top Secret OD",
-        "Scream 808", "Pillars", "Hedgehog D9", "Stupor OD", "Deez One Vintage", "Deez One Mod",
-        "Ratatoullie Dist", "Vermin Dist", "KWB", "Swedish Chainsaw", "Arbitrator Fuzz",
-        "Pocket Fuzz", "Bighorn Fuzz", "Triangle Fuzz", "Dark Dove Fuzz", "Industrial Fuzz",
-        "Tycoctavia Fuzz", "Heavy Dist", "Killer Z", "Screamer", "Tube Drive", "Classic Dist"
-      ],
-      DYN: [
-        "Deluxe Comp", "Red Squeeze", "Kinky Comp", "Ampeg Opto Comp", "Rochester Comp",
-        "LA Studio Comp", "3-Band Comp", "Noise Gate", "Hard Gate", "Horizon Gate", "Autoswell", "Boost Comp"
-      ],
-      EQ: [
-        "Simple EQ", "Low and High Cut", "Low/High Shelf", "Parametric", "Tilt", "10 Band Graphic", "Cali Q Graphic"
-      ],
-      MOD: [
-        "Optical Trem", "60s Bias Trem", "Tremolo/Autopan", "Harmonic Tremolo", "Script Mod Phase",
-        "Pebble Phaser", "Ubiquitous Vibe", "FlexoVibe", "Deluxe Phaser", "Gray Flanger",
-        "Harmonic Flanger", "Courtesan Flange", "Chorus", "70s Chorus", "PlastiChorus",
-        "Trinity Chorus", "4-Voice Chorus", "Bubble Vibrato", "Vibe Rotary", "122 Rotary", "145 Rotary", "Double Take"
-      ],
-      DELAY: [
-        "Simple Delay", "Mod/Chorus Echo", "Dual Delay", "Multitap 4", "Multitap 6", "Ping Pong",
-        "Sweep Echo", "Ducked Delay", "Reverse Delay", "Vintage Digital", "Vintage Swell",
-        "Pitch Echo", "Transistor Tape", "Harmony Delay", "Bucket Brigade", "Adriatic Delay", "Elephant Man"
-      ],
-      REVERB: [
-        "Dynamic Hall", "Dynamic Plate", "Dynamic Room", "Dynamic Ambience", "Shimmer",
-        "Hot Springs", "Glitz", "Ganymede", "Searchlights", "Plateaux", "Double Tank",
-        "Plate", "Room", "Chamber", "Hall", "'63 Spring", "Spring", "Particle Verb"
-      ],
-      WAH: [
-        "UK Wah 846", "Teardrop 310", "Fassel", "Weeper", "Chrome", "Chrome Custom", "Throaty", "Vetta Wah", "Colorful"
-      ],
-      PITCH: [
-        "Pitch Wham", "Twin Harmony", "Simple Pitch", "Dual Pitch", "Boctaver", "Smart Harmony"
-      ]
-    };
+    // 1. WAH (11 Modelos Oficiales del Manual POD Go v2.50 numerados)
+    const WAH = [
+      m("1: UK Wah 846", {"Position": "50%", "Mix": "100%", "Level": "0.0dB"}),
+      m("2: Teardrop 310", {"Position": "50%", "Mix": "100%", "Level": "0.0dB"}),
+      m("3: Fassel", {"Position": "50%", "Mix": "100%", "Level": "0.0dB"}),
+      m("4: Weeper", {"Position": "50%", "Mix": "100%", "Level": "0.0dB"}),
+      m("5: Chrome", {"Position": "50%", "Mix": "100%", "Level": "0.0dB"}),
+      m("6: Chrome Custom", {"Position": "50%", "Low": "0.0dB", "High": "0.0dB", "Mix": "100%"}),
+      m("7: Throaty", {"Position": "50%", "Mix": "100%", "Level": "0.0dB"}),
+      m("8: Vetta Wah", {"Position": "50%", "Mix": "100%", "Level": "0.0dB"}),
+      m("9: Colorful", {"Position": "50%", "Mix": "100%", "Level": "0.0dB"}),
+      m("10: Conductor", {"Position": "50%", "Mix": "100%", "Level": "0.0dB"}),
+      m("11: Teardrop Bass Q", {"Position": "50%", "Mix": "100%", "Level": "0.0dB"})
+    ];
 
-    // PRESETS UNIVERSALES VERIFICADOS (CON SECCIÓN DIFERENCIADA SOLO vs INTRO)
+    // 2. PITCH / SYNTH (19 Modelos Oficiales del Manual v2.50 numerados)
+    const PITCH = [
+      m("1: Pitch Wham", {"Heel": "0", "Toe": "+2 Oct", "Mix": "100%", "Level": "0.0dB"}),
+      m("2: Twin Harmony", {"Interval 1": "+3rd", "Key": "E", "Scale": "Major", "Mix": "50%"}),
+      m("3: Simple Pitch", {"Interval": "-12", "Cents": "0.0", "Mix": "50%", "Level": "0.0dB"}),
+      m("4: Dual Pitch", {"Interval 1": "-12", "Interval 2": "+12", "Mix": "50%", "Level": "0.0dB"}),
+      m("5: Boctaver", {"Direct": "7.5", "Octave 1": "6.5", "Octave 2": "3.0", "Tone": "5.0"}),
+      m("6: 3 Note Generator", {"Note 1": "E2", "Note 2": "B2", "Note 3": "E3", "Mix": "80%"}),
+      m("7: 4 OSC Generator", {"Freq 1": "110Hz", "Wave": "Saw", "Filter": "3.5kHz", "Mix": "85%"}),
+      m("8: Bass Octaver", {"Tone": "6.0", "Normal": "8.0", "Octave": "6.5", "Level": "0.0dB"}),
+      m("9: Smart Harmony", {"Key": "A", "Scale": "Minor", "Shift": "+3rd", "Mix": "50%"}),
+      m("10: Octi Synth", {"Freq": "5.5", "Res": "6.0", "Depth": "7.0", "Mix": "80%"}),
+      m("11: Synth O Matic", {"Wave": "5.0", "Freq": "6.0", "Q": "5.5", "Mix": "85%"}),
+      m("12: Attack Synth", {"Wave": "Saw", "Freak": "5.5", "Attack": "4.0", "Mix": "90%"}),
+      m("13: Synth String", {"Speed": "4.5", "Freq": "6.5", "Attack": "6.0", "Mix": "85%"}),
+      m("14: Growler", {"Speed": "3.5", "Freq": "6.0", "Q": "7.0", "Mix": "90%"}),
+      m("15: Buzz Wave", {"Wave": "5.0", "Filter": "6.5", "Decay": "5.5", "Mix": "80%"}),
+      m("16: Rez Synth", {"Freq": "6.0", "Res": "7.5", "Sweep": "5.0", "Mix": "85%"}),
+      m("17: Seismik Synth", {"Wave": "4.0", "Freq": "5.0", "Mix": "85%", "Level": "0.0dB"}),
+      m("18: Analog Synth", {"Freq": "6.2", "Res": "5.5", "Decay": "6.0", "Mix": "85%"}),
+      m("19: Synth Lead", {"Wave": "7.0", "Filter": "6.5", "Res": "5.0", "Mix": "100%"})
+    ];
+
+    // 3. FILTER (15 Modelos Oficiales del Manual v2.50 numerados)
+    const FILTER = [
+      m("1: Mutant Filter", {"Mode": "BP", "Drive": "4.5", "Peak": "6.5", "Range": "High"}),
+      m("2: Mystery Filter", {"Sens": "6.0", "Freq": "5.0", "Res": "5.5", "Mix": "100%"}),
+      m("3: Autofilter", {"Sens": "6.5", "Attack": "25ms", "Decay": "220ms", "Freq": "4.5"}),
+      m("4: Asheville Pattrn", {"Pattern": "1", "Rate": "5.0", "Drive": "4.0", "Mix": "80%"}),
+      m("5: Voice Box", {"Speed": "4.5", "Start": "2.0", "End": "8.0", "Mix": "100%"}),
+      m("6: V Tron", {"Sens": "6.5", "Peak": "7.0", "Mode": "Up", "Mix": "100%"}),
+      m("7: Q Filter", {"Freq": "5.5", "Q": "7.0", "Gain": "+4.0dB", "Mix": "100%"}),
+      m("8: Seeker", {"Speed": "1/16", "Steps": "8", "Mix": "100%", "Level": "0.0dB"}),
+      m("9: Obi Wah", {"Speed": "1/16", "Q": "6.5", "Mix": "100%", "Level": "0.0dB"}),
+      m("10: Tron Up", {"Sens": "6.0", "Q": "6.5", "Range": "High", "Mix": "100%"}),
+      m("11: Tron Down", {"Sens": "6.0", "Q": "6.5", "Range": "Low", "Mix": "100%"}),
+      m("12: Throbber", {"Speed": "4.5", "Wave": "5.0", "Q": "6.0", "Mix": "100%"}),
+      m("13: Slow Filter", {"Sens": "6.0", "Speed": "4.0", "Q": "5.5", "Mix": "100%"}),
+      m("14: Spin Cycle", {"Speed": "4.5", "Vol Sens": "6.0", "Mix": "100%", "Level": "0.0dB"}),
+      m("15: Comet Trails", {"Speed": "3.5", "Q": "7.0", "Gain": "5.0", "Mix": "80%"})
+    ];
+
+    // 4. DYNAMICS (18 Compresores y Gates Oficiales del Manual v2.50 numerados)
+    const DYN = [
+      m("1: Deluxe Comp", {"Threshold": "-30.0dB", "Ratio": "4:1", "Attack": "25ms", "Release": "200ms", "Mix": "85%", "Level": "+3.0dB"}),
+      m("2: Red Squeeze", {"Sens": "6.2", "Mix": "85%", "Level": "+2.0dB"}),
+      m("3: Kinky Comp", {"Sens": "5.8", "Attack": "5.0", "Mix": "80%", "Level": "+2.5dB"}),
+      m("4: Ampeg Opto Comp", {"Compression": "5.5", "Release": "5.0", "Level": "+2.0dB", "Mix": "90%"}),
+      m("5: Rochester Comp", {"Threshold": "-24.0dB", "Ratio": "3.0:1", "Attack": "15ms", "Gain": "+3.0dB"}),
+      m("6: LA Studio Comp", {"Peak Red": "5.5", "Gain": "5.8", "Emphasis": "2.5", "Mix": "80%"}),
+      m("7: 3-Band Comp", {"Low Thresh": "-28.0dB", "Mid Thresh": "-25.0dB", "High Thresh": "-22.0dB", "Level": "+3.0dB"}),
+      m("8: Noise Gate", {"Threshold": "-42.0dB", "Decay": "150ms", "Level": "0.0dB"}),
+      m("9: Hard Gate", {"Open Thresh": "-36.0dB", "Close Thresh": "-45.0dB", "Hold": "20ms", "Decay": "80ms"}),
+      m("10: Horizon Gate", {"Gate": "6.0", "Mode": "Fast", "Level": "0.0dB"}),
+      m("11: Autoswell", {"Rel Time": "400ms", "Threshold": "-45.0dB", "Depth": "100%", "Taper": "Log"}),
+      m("12: Tube Comp", {"Threshold": "5.5", "Level": "6.5", "Attack": "5.0", "Release": "5.0"}),
+      m("13: Red Comp", {"Sustain": "6.0", "Level": "6.5", "Mix": "100%"}),
+      m("14: Blue Comp", {"Sustain": "6.0", "Level": "6.5", "Attack": "5.0"}),
+      m("15: Blue Comp Treb", {"Sustain": "6.0", "Level": "6.5", "Treble": "On"}),
+      m("16: Vetta Comp", {"Sens": "6.0", "Level": "6.5", "Mix": "100%"}),
+      m("17: Vetta Juice", {"Amount": "5.5", "Level": "6.5", "Mix": "100%"}),
+      m("18: Boost Comp", {"Drive": "5.0", "Comp": "6.0", "Bass": "5.5", "Treble": "6.0", "Output": "6.5"})
+    ];
+
+    // 5. DISTORTION (52 Overdrives, Distorsiones y Fuzz Oficiales del Manual v2.50 numerados)
+    const DIST = [
+      m("1: Kinky Boost", {"Drive": "3.5", "Boost": "On", "Bright": "On"}),
+      m("2: Deranged Master", {"Gain": "7.5", "Range": "110Hz", "Tone": "6.5", "Level": "7.0"}),
+      m("3: Minotaur", {"Gain": "2.8", "Treble": "6.2", "Output": "7.2"}),
+      m("4: Teemah!", {"Gain": "3.2", "Bass": "4.5", "Treble": "6.4", "Level": "7.0"}),
+      m("5: Heir Apparent", {"Gain": "4.5", "Tone": "6.2", "Presence": "5.5", "Mode": "OD", "Level": "7.0"}),
+      m("6: Alpaca Rouge", {"Drive": "5.5", "Hi-Cut": "6.0", "Volume": "6.5"}),
+      m("7: Compulsive Drive", {"Gain": "5.2", "Tone": "6.0", "Peak": "HP", "Volume": "6.2"}),
+      m("8: Dhyana Drive", {"Gain": "5.5", "Tone": "6.0", "Voice": "5.8", "Level": "6.5"}),
+      m("9: Horizon Drive", {"Drive": "1.5", "Attack": "3", "Bright": "6.5", "Gate": "5.0", "Level": "8.5"}),
+      m("10: Valve Driver", {"Gain": "5.0", "Bass": "5.5", "Treble": "6.2", "Level": "6.5"}),
+      m("11: Top Secret OD", {"Gain": "5.5", "Level": "7.0"}),
+      m("12: Scream 808", {"Gain": "1.8", "Tone": "6.8", "Level": "8.5"}),
+      m("13: Pillars", {"Gain": "3.5", "Tone": "6.2", "Mode": "Mode 1", "Level": "7.5"}),
+      m("14: Hedgehog D9", {"Gain": "5.2", "Tone": "5.8", "Level": "6.5"}),
+      m("15: Stupor OD", {"Drive": "3.5", "Tone": "6.0", "Level": "7.5"}),
+      m("16: Deez One Vintage", {"Drive": "6.0", "Tone": "5.2", "Level": "6.8"}),
+      m("17: Deez One Mod", {"Drive": "6.2", "Tone": "5.5", "Ultra": "On", "Level": "6.8"}),
+      m("18: Ratatoullie Dist", {"Drive": "6.2", "Filter": "4.5", "Gain": "6.0", "Volume": "6.8"}),
+      m("19: Vermin Dist", {"Gain": "6.5", "Filter": "4.2", "Volume": "6.8"}),
+      m("20: KWB", {"Gain": "6.0", "Bass": "5.5", "Treble": "6.0", "Nature": "5.0", "Level": "6.5"}),
+      m("21: Swedish Chainsaw", {"Dist": "10.0", "Low": "10.0", "High": "10.0", "Level": "7.5"}),
+      m("22: Arbitrator Fuzz", {"Fuzz": "8.5", "Level": "7.0"}),
+      m("23: Pocket Fuzz", {"Attack": "7.5", "Volume": "6.8"}),
+      m("24: Bighorn Fuzz", {"Sustain": "7.2", "Tone": "5.8", "Level": "6.8"}),
+      m("25: Triangle Fuzz", {"Sustain": "7.0", "Tone": "6.0", "Level": "6.8"}),
+      m("26: Dark Dove Fuzz", {"Sustain": "7.5", "Tone": "5.5", "Level": "7.0"}),
+      m("27: Ballistic Fuzz", {"Sustain": "7.5", "Tone": "6.0", "Bias": "5.0", "Level": "6.5"}),
+      m("28: Industrial Fuzz", {"Drive": "7.0", "Gate": "5.0", "Comp": "5.5", "Stab": "7.5", "Level": "6.0"}),
+      m("29: Tycoctavia Fuzz", {"Fuzz": "7.5", "Level": "7.0"}),
+      m("30: Wringer Fuzz", {"Fuzz": "7.0", "Bass": "6.0", "Treble": "6.5", "Level": "6.8"}),
+      m("31: Thrifter Fuzz", {"Drive": "7.0", "Tone": "5.8", "Bias": "4.5", "Output": "6.5"}),
+      m("32: Xenomorph Fuzz", {"Fuzz": "7.0", "Sub": "5.0", "Filter": "6.0", "Level": "6.5"}),
+      m("33: Megaphone", {"Drive": "6.0", "Focus": "7.0", "Grit": "5.5", "Mix": "100%"}),
+      m("34: Bitcrusher", {"Bit Depth": "8bit", "Sample": "12kHz", "Mix": "80%", "Level": "0.0dB"}),
+      m("35: Ampeg Scrambler", {"Drive": "5.5", "Treble": "6.0", "Blend": "50%", "Level": "6.5"}),
+      m("36: ZeroAmp Bass DI", {"Drive": "5.5", "Bass": "6.0", "Treble": "6.0", "Presence": "5.8", "Blend": "75%"}),
+      m("37: Regal Bass DI", {"Bass": "6.0", "Treble": "5.5", "Low Cut": "On", "Level": "6.5"}),
+      m("38: Obsidian 7000", {"Drive": "6.5", "Blend": "70%", "Bass": "6.0", "Hi Mids": "6.5", "Level": "6.5"}),
+      m("39: Tube Drive", {"Drive": "5.5", "Bass": "5.5", "Treble": "6.2", "Output": "6.5"}),
+      m("40: Screamer", {"Drive": "2.5", "Bass": "5.0", "Tone": "6.5", "Treble": "6.0", "Output": "8.0"}),
+      m("41: Overdrive", {"Drive": "5.5", "Bass": "5.0", "Mid": "6.0", "Treble": "6.0", "Output": "6.5"}),
+      m("42: Classic Dist", {"Drive": "6.5", "Bass": "5.5", "Filter": "5.8", "Output": "6.8"}),
+      m("43: Heavy Dist", {"Drive": "7.0", "Bass": "6.5", "Mid": "4.5", "Treble": "6.8", "Output": "6.5"}),
+      m("44: Colordrive", {"Drive": "6.0", "Bass": "5.5", "Treble": "6.5", "Output": "6.5"}),
+      m("45: Buzz Saw", {"Drive": "7.5", "Bass": "5.0", "Mid": "6.0", "Treble": "6.5", "Output": "6.5"}),
+      m("46: Facial Fuzz", {"Drive": "8.0", "Bass": "6.0", "Mid": "5.5", "Treble": "6.0", "Output": "6.8"}),
+      m("47: Jumbo Fuzz", {"Drive": "7.5", "Bass": "6.0", "Mid": "5.5", "Treble": "6.5", "Output": "6.5"}),
+      m("48: Fuzz Pi", {"Drive": "7.5", "Bass": "6.5", "Mid": "5.0", "Treble": "6.5", "Output": "6.8"}),
+      m("49: Jet Fuzz", {"Drive": "6.5", "Feedback": "6.0", "Speed": "3.5", "Output": "6.5"}),
+      m("50: L6 Drive", {"Drive": "6.5", "Bass": "5.5", "Mid": "6.5", "Treble": "6.0", "Output": "6.5"}),
+      m("51: L6 Distortion", {"Drive": "7.5", "Bass": "6.0", "Mid": "5.5", "Treble": "6.5", "Output": "6.5"}),
+      m("52: Killer Z", {"Drive": "7.2", "Contour": "6.0", "Mid Freq": "5.5", "Treble": "6.5", "Output": "6.5"})
+    ];
+
+    // 6. AMP (81 Amplificadores Oficiales del Manual Line 6 POD Go v2.50 con NÚMERO DE ORDEN)
+    const AMP = [
+      m("1: WhoWatt 100", {"Drive": "4.8", "Bass": "5.5", "Mid": "6.2", "Treble": "6.0", "Presence": "5.5", "Ch Vol": "7.5", "Master": "8.0"}),
+      m("2: Soup Pro", {"Drive": "5.5", "Tone": "6.2", "Ch Vol": "7.5", "Master": "8.5", "Sag": "5.5"}),
+      m("3: Stone Age 185", {"Drive": "5.0", "Tone": "6.0", "Ch Vol": "7.5", "Master": "8.0", "Sag": "6.0"}),
+      m("4: Voltage Queen", {"Drive": "5.2", "Tone": "6.0", "Ch Vol": "7.5", "Master": "8.5", "Sag": "6.0"}),
+      m("5: Tweed Blues Nrm", {"Drive": "4.5", "Bass": "5.0", "Mid": "6.0", "Treble": "6.5", "Presence": "5.8", "Ch Vol": "7.5", "Master": "8.5"}),
+      m("6: Tweed Blues Brt", {"Drive": "4.5", "Bass": "5.2", "Mid": "5.8", "Treble": "6.2", "Presence": "5.5", "Ch Vol": "7.5", "Master": "8.5"}),
+      m("7: Fullerton Nrm", {"Drive": "5.0", "Tone": "6.5", "Ch Vol": "7.5", "Master": "8.5", "Sag": "6.0"}),
+      m("8: Fullerton Brt", {"Drive": "5.0", "Tone": "6.0", "Ch Vol": "7.5", "Master": "8.5", "Sag": "6.0"}),
+      m("9: Fullerton Jump", {"Drive Nrm": "4.8", "Drive Brt": "5.2", "Tone": "6.2", "Ch Vol": "7.5", "Master": "8.5"}),
+      m("10: Grammatico Nrm", {"Drive": "5.0", "Tone": "6.2", "Ch Vol": "7.5", "Master": "8.5"}),
+      m("11: Grammatico Brt", {"Drive": "5.0", "Tone": "5.8", "Ch Vol": "7.5", "Master": "8.5"}),
+      m("12: Grammatico Jump", {"Drive Nrm": "4.5", "Drive Brt": "5.2", "Tone": "6.0", "Ch Vol": "7.5", "Master": "8.5"}),
+      m("13: US Small Tweed", {"Drive": "5.5", "Ch Vol": "7.8", "Master": "9.0", "Sag": "6.0"}),
+      m("14: US Princess", {"Drive": "4.2", "Bass": "5.2", "Mid": "6.0", "Treble": "6.4", "Ch Vol": "7.8", "Master": "8.5"}),
+      m("15: US Super Nrm", {"Drive": "4.0", "Bass": "5.0", "Mid": "6.2", "Treble": "6.5", "Ch Vol": "7.8", "Master": "8.0"}),
+      m("16: US Super Vib", {"Drive": "4.2", "Bass": "5.0", "Mid": "6.2", "Treble": "6.5", "Ch Vol": "7.8", "Master": "8.0"}),
+      m("17: US Deluxe Nrm", {"Drive": "3.8", "Bass": "5.2", "Mid": "6.0", "Treble": "6.5", "Ch Vol": "8.0", "Master": "8.5"}),
+      m("18: US Deluxe Vib", {"Drive": "4.0", "Bass": "5.2", "Mid": "6.0", "Treble": "6.4", "Ch Vol": "8.0", "Master": "8.5"}),
+      m("19: US Double Nrm", {"Drive": "3.5", "Bass": "5.0", "Mid": "6.0", "Treble": "6.5", "Presence": "5.5", "Ch Vol": "8.0"}),
+      m("20: US Double Vib", {"Drive": "3.5", "Bass": "5.0", "Mid": "6.2", "Treble": "6.4", "Presence": "5.5", "Ch Vol": "8.0"}),
+      m("21: Mail Order Twin", {"Drive": "5.5", "Bass": "5.0", "Treble": "6.2", "Ch Vol": "7.5", "Master": "8.0"}),
+      m("22: Divided Duo", {"Drive 1": "4.5", "Drive 2": "5.0", "Bass": "5.5", "Treble": "6.2", "Cut": "3.5", "Ch Vol": "7.5"}),
+      m("23: Interstate Zed", {"Drive": "4.8", "Bass": "5.2", "Treble": "6.0", "Ch Vol": "7.5", "Master": "8.0"}),
+      m("24: Derailed Ingrid", {"Drive": "5.8", "Bass": "5.0", "Mid": "6.2", "Treble": "6.0", "Presence": "5.2", "Ch Vol": "7.0"}),
+      m("25: Jazz Rivet 120", {"Drive": "2.8", "Bass": "5.2", "Mid": "5.8", "Treble": "7.0", "Presence": "5.8", "Ch Vol": "8.2"}),
+      m("26: Essex A15", {"Drive": "4.5", "Bass": "5.0", "Treble": "6.2", "Cut": "3.5", "Ch Vol": "7.8", "Master": "9.0"}),
+      m("27: Essex A30", {"Drive": "4.8", "Bass": "5.2", "Treble": "6.5", "Cut": "3.2", "Ch Vol": "7.5", "Master": "9.0"}),
+      m("28: A30 Fawn Nrm", {"Drive": "5.0", "Cut": "3.5", "Ch Vol": "7.8", "Master": "9.0"}),
+      m("29: A30 Fawn Brt", {"Drive": "4.8", "Bass": "5.5", "Treble": "6.2", "Cut": "3.5", "Ch Vol": "7.5", "Master": "9.0"}),
+      m("30: Matchstick Ch1", {"Drive": "3.2", "Bass": "5.2", "Cut": "2.5", "Treble": "5.8", "Presence": "4.5", "Ch Vol": "7.8"}),
+      m("31: Matchstick Ch2", {"Drive": "5.2", "Tone": "4.0", "Cut": "3.0", "Ch Vol": "7.5", "Master": "8.5"}),
+      m("32: Matchstick Jump", {"Drive Ch1": "4.2", "Drive Ch2": "5.0", "Bass": "5.2", "Treble": "6.0", "Cut": "3.0", "Ch Vol": "7.5"}),
+      m("33: Mandarin 80", {"Drive": "5.8", "Bass": "5.5", "Mid": "6.5", "Treble": "6.2", "Presence": "5.5", "Ch Vol": "7.2"}),
+      m("34: Brit J45 Nrm", {"Drive": "4.8", "Bass": "4.5", "Mid": "6.5", "Treble": "6.8", "Presence": "6.0", "Ch Vol": "7.5"}),
+      m("35: Brit J45 Brt", {"Drive": "4.8", "Bass": "5.2", "Mid": "6.2", "Treble": "6.2", "Presence": "5.8", "Ch Vol": "7.5"}),
+      m("36: Brit Trem Nrm", {"Drive": "5.2", "Bass": "5.0", "Mid": "6.5", "Treble": "6.5", "Presence": "5.8", "Ch Vol": "7.5"}),
+      m("37: Brit Trem Brt", {"Drive": "5.2", "Bass": "5.5", "Mid": "6.2", "Treble": "6.0", "Presence": "5.5", "Ch Vol": "7.5"}),
+      m("38: Brit Trem Jump", {"Drive Nrm": "5.0", "Drive Brt": "5.5", "Bass": "5.2", "Mid": "6.5", "Treble": "6.2", "Presence": "5.8"}),
+      m("39: Brit Plexi Nrm", {"Drive": "5.8", "Bass": "4.8", "Mid": "6.8", "Treble": "6.8", "Presence": "6.2", "Ch Vol": "7.2", "Master": "8.0"}),
+      m("40: Brit Plexi Brt", {"Drive": "5.8", "Bass": "5.5", "Mid": "6.5", "Treble": "6.2", "Presence": "5.8", "Ch Vol": "7.2", "Master": "8.0"}),
+      m("41: Brit Plexi Jump", {"Drive Nrm": "5.2", "Drive Brt": "5.8", "Bass": "5.2", "Mid": "6.8", "Treble": "6.5", "Presence": "6.0", "Ch Vol": "7.2"}),
+      m("42: Brit P75 Nrm", {"Drive": "5.8", "Bass": "5.2", "Mid": "6.5", "Treble": "6.5", "Presence": "5.8", "Ch Vol": "7.2"}),
+      m("43: Brit P75 Brt", {"Drive": "5.8", "Bass": "5.8", "Mid": "6.2", "Treble": "6.0", "Presence": "5.5", "Ch Vol": "7.2"}),
+      m("44: Brit 2203", {"Drive": "6.8", "Bass": "6.0", "Mid": "7.0", "Treble": "6.5", "Presence": "5.8", "Ch Vol": "7.5", "Master": "5.5"}),
+      m("45: Brit 2204", {"Drive": "6.8", "Bass": "5.8", "Mid": "7.2", "Treble": "6.4", "Presence": "5.8", "Ch Vol": "7.5", "Master": "5.5"}),
+      m("46: Placater Clean", {"Drive": "3.5", "Bass": "5.2", "Mid": "6.0", "Treble": "6.5", "Presence": "5.8", "Ch Vol": "8.0"}),
+      m("47: Placater Dirty", {"Drive": "6.5", "Bass": "5.8", "Mid": "6.8", "Treble": "6.5", "Presence": "6.0", "Ch Vol": "7.2", "Master": "5.0"}),
+      m("48: Cartographer", {"Drive": "6.2", "Bass": "5.8", "Mid": "6.5", "Treble": "6.4", "Presence": "5.8", "Ch Vol": "7.2"}),
+      m("49: German Xtra Blue", {"Drive": "6.2", "Bass": "5.8", "Mid": "6.8", "Treble": "6.5", "Presence": "5.8", "Ch Vol": "7.2"}),
+      m("50: German Xtra Red", {"Drive": "6.8", "Bass": "6.0", "Mid": "6.5", "Treble": "6.6", "Presence": "6.0", "Ch Vol": "7.0"}),
+      m("51: German Mahadeva", {"Drive": "5.8", "Bass": "5.5", "Mid": "6.5", "Treble": "6.4", "Presence": "5.8", "Ch Vol": "7.5"}),
+      m("52: German Ubersonic", {"Drive": "6.8", "Bass": "6.0", "Mid": "5.8", "Treble": "6.8", "Presence": "6.2", "Ch Vol": "7.0"}),
+      m("53: Cali Texas Ch 1", {"Drive": "3.5", "Bass": "5.2", "Mid": "6.0", "Treble": "6.5", "Presence": "5.8", "Ch Vol": "8.0"}),
+      m("54: Cali Texas Ch 2", {"Drive": "5.8", "Bass": "5.0", "Mid": "6.5", "Treble": "6.4", "Presence": "5.8", "Ch Vol": "7.5"}),
+      m("55: Cali IV Rhythm 1", {"Gain": "3.8", "Bass": "4.5", "Mid": "5.8", "Treble": "6.8", "Presence": "5.8", "Ch Vol": "8.0"}),
+      m("56: Cali IV Rhythm 2", {"Gain": "6.2", "Bass": "3.5", "Mid": "5.8", "Treble": "7.2", "Presence": "6.0", "Ch Vol": "7.5"}),
+      m("57: Cali IV Lead", {"Lead Gain": "7.5", "Bass": "2.5", "Mid": "4.0", "Treble": "8.0", "Presence": "6.5", "Lead Drive": "7.2", "Master": "4.8"}),
+      m("58: Cali Rectifire", {"Drive": "6.5", "Bass": "5.2", "Mid": "5.5", "Treble": "6.8", "Presence": "6.0", "Ch Vol": "7.2", "Master": "4.5"}),
+      m("59: Archetype Clean", {"Drive": "3.2", "Bass": "5.2", "Mid": "5.8", "Treble": "6.5", "Presence": "5.8", "Ch Vol": "8.0"}),
+      m("60: Archetype Lead", {"Drive": "6.5", "Bass": "5.8", "Mid": "6.2", "Treble": "6.8", "Presence": "6.2", "Ch Vol": "7.2", "Master": "4.8"}),
+      m("61: ANGL Meteor", {"Drive": "6.2", "Bass": "5.8", "Mid": "6.0", "Treble": "6.6", "Presence": "6.0", "Ch Vol": "7.2", "Master": "4.8"}),
+      m("62: Solo Lead Clean", {"Drive": "3.8", "Bass": "5.5", "Mid": "6.0", "Treble": "6.5", "Presence": "5.8", "Ch Vol": "7.8"}),
+      m("63: Solo Lead Crunch", {"Drive": "5.8", "Bass": "5.8", "Mid": "6.5", "Treble": "6.5", "Presence": "6.0", "Ch Vol": "7.5"}),
+      m("64: Solo Lead OD", {"Drive": "6.5", "Bass": "6.0", "Mid": "6.5", "Treble": "6.8", "Presence": "6.2", "Ch Vol": "7.2", "Master": "4.8"}),
+      m("65: PV Panama", {"Drive": "6.0", "Bass": "6.0", "Mid": "5.5", "Treble": "6.6", "Presence": "6.5", "Resonance": "6.2", "Ch Vol": "7.2"}),
+      m("66: Revv Gen Purple", {"Drive": "5.8", "Bass": "5.8", "Mid": "6.2", "Treble": "6.5", "Presence": "6.0", "Depth": "5.8", "Ch Vol": "7.2"}),
+      m("67: Revv Gen Red", {"Drive": "6.4", "Bass": "5.8", "Mid": "6.0", "Treble": "6.6", "Presence": "6.2", "Depth": "6.0", "Ch Vol": "7.0"}),
+      m("68: Das Benzin Mega", {"Drive": "6.2", "Bass": "5.8", "Mid": "6.2", "Treble": "6.5", "Presence": "6.0", "Deep": "5.8", "Ch Vol": "7.2"}),
+      m("69: Das Benzin Lead", {"Drive": "6.6", "Bass": "5.8", "Mid": "6.5", "Treble": "6.6", "Presence": "6.2", "Deep": "6.0", "Ch Vol": "7.0"}),
+      m("70: Line 6 Clarity", {"Drive": "2.5", "Bass": "5.2", "Mid": "5.8", "Treble": "6.8", "Presence": "6.0", "Ch Vol": "8.2"}),
+      m("71: Line 6 Aristocrat", {"Drive": "4.8", "Bass": "5.5", "Mid": "6.2", "Treble": "6.4", "Presence": "5.8", "Ch Vol": "7.5"}),
+      m("72: Line 6 Carillon", {"Drive": "4.5", "Bass": "5.2", "Mid": "6.0", "Treble": "6.6", "Presence": "6.0", "Ch Vol": "7.8"}),
+      m("73: Line 6 Voltage", {"Drive": "5.5", "Bass": "5.5", "Mid": "6.5", "Treble": "6.2", "Presence": "5.8", "Ch Vol": "7.5"}),
+      m("74: Line 6 Kinetic", {"Drive": "6.0", "Bass": "5.8", "Mid": "6.2", "Treble": "6.5", "Presence": "6.0", "Ch Vol": "7.2"}),
+      m("75: Line 6 Oblivion", {"Drive": "6.5", "Bass": "6.0", "Mid": "5.8", "Treble": "6.8", "Presence": "6.2", "Ch Vol": "7.0"}),
+      m("76: Line 6 Elektrik", {"Drive": "6.8", "Bass": "6.0", "Mid": "6.2", "Treble": "6.6", "Presence": "6.2", "Ch Vol": "7.0"}),
+      m("77: Line 6 Doom", {"Drive": "7.2", "Bass": "7.0", "Mid": "6.5", "Treble": "5.8", "Presence": "5.5", "Ch Vol": "7.0"}),
+      m("78: Line 6 Epic", {"Drive": "6.8", "Bass": "5.8", "Mid": "6.8", "Treble": "6.5", "Presence": "6.2", "Ch Vol": "7.2"}),
+      m("79: Line 6 2204 Mod", {"Drive": "6.8", "Bass": "6.0", "Mid": "7.0", "Treble": "6.6", "Presence": "6.0", "Ch Vol": "7.2"}),
+      m("80: Line 6 Fatality", {"Drive": "6.8", "Bass": "6.0", "Mid": "5.5", "Treble": "6.8", "Presence": "6.5", "Ch Vol": "7.0"}),
+      m("81: Line 6 Badonk", {"Drive": "6.5", "Bass": "6.2", "Mid": "5.8", "Treble": "6.8", "Presence": "6.5", "Depth": "6.2", "Ch Vol": "7.2"})
+    ];
+
+    // 7. CAB (38 Gabinetes Oficiales del Manual v2.50 con NÚMERO DE ORDEN y sus Micrófonos reales)
+    const CAB = [
+      m("1: Soup Pro Ellipse", {"Mic": "57 Dynamic", "Position": "3.0", "Distance": "4.0cm", "Low Cut": "85Hz", "High Cut": "8.0kHz"}),
+      m("2: 1x8 Small Tweed", {"Mic": "121 Ribbon", "Position": "3.5", "Distance": "5.0cm", "Low Cut": "90Hz", "High Cut": "7.8kHz"}),
+      m("3: 1x10 US Princess", {"Mic": "57 Dynamic", "Position": "3.0", "Distance": "4.5cm", "Low Cut": "80Hz", "High Cut": "8.5kHz"}),
+      m("4: 1x12 Fullerton", {"Mic": "57 Dynamic", "Position": "3.2", "Distance": "4.5cm", "Low Cut": "80Hz", "High Cut": "8.2kHz"}),
+      m("5: 1x12 Grammatico", {"Mic": "121 Ribbon", "Position": "3.5", "Distance": "5.0cm", "Low Cut": "80Hz", "High Cut": "8.2kHz"}),
+      m("6: 1x12 US Deluxe", {"Mic": "57 Dynamic", "Position": "2.8", "Distance": "4.0cm", "Low Cut": "80Hz", "High Cut": "8.8kHz"}),
+      m("7: 1x12 Open Cast", {"Mic": "57 Dynamic", "Position": "3.0", "Distance": "4.0cm", "Low Cut": "80Hz", "High Cut": "8.5kHz"}),
+      m("8: 1x12 Open Cream", {"Mic": "121 Ribbon", "Position": "3.2", "Distance": "4.5cm", "Low Cut": "80Hz", "High Cut": "8.2kHz"}),
+      m("9: 1x12 Cali EXT", {"Mic": "57 Dynamic", "Position": "2.5", "Distance": "3.5cm", "Low Cut": "85Hz", "High Cut": "8.0kHz"}),
+      m("10: 1x12 Cali IV", {"Mic": "57 Dynamic", "Position": "2.8", "Distance": "3.5cm", "Low Cut": "85Hz", "High Cut": "8.0kHz"}),
+      m("11: 1x12 Blue Bell", {"Mic": "160 Ribbon", "Position": "3.2", "Distance": "4.5cm", "Low Cut": "80Hz", "High Cut": "8.5kHz"}),
+      m("12: 2x12 Blue Bell", {"Mic": "57 Dynamic", "Position": "3.0", "Distance": "4.5cm", "Low Cut": "80Hz", "High Cut": "8.5kHz"}),
+      m("13: 2x12 Silver Bell", {"Mic": "121 Ribbon", "Position": "3.2", "Distance": "4.5cm", "Low Cut": "80Hz", "High Cut": "8.5kHz"}),
+      m("14: 2x12 Match H30", {"Mic": "57 Dynamic", "Position": "3.0", "Distance": "4.0cm", "Low Cut": "80Hz", "High Cut": "8.5kHz"}),
+      m("15: 2x12 Match G25", {"Mic": "121 Ribbon", "Position": "3.2", "Distance": "4.5cm", "Low Cut": "80Hz", "High Cut": "8.2kHz"}),
+      m("16: 2x12 Double C12N", {"Mic": "57 Dynamic", "Position": "2.8", "Distance": "4.5cm", "Low Cut": "75Hz", "High Cut": "9.0kHz"}),
+      m("17: 2x12 Interstate", {"Mic": "57 Dynamic", "Position": "3.0", "Distance": "4.0cm", "Low Cut": "80Hz", "High Cut": "8.2kHz"}),
+      m("18: 2x12 Jazz Rivet", {"Mic": "57 Dynamic", "Position": "2.5", "Distance": "5.0cm", "Low Cut": "80Hz", "High Cut": "9.2kHz"}),
+      m("19: 2x12 Mail C12Q", {"Mic": "121 Ribbon", "Position": "3.5", "Distance": "5.0cm", "Low Cut": "85Hz", "High Cut": "8.0kHz"}),
+      m("20: 2x12 Mandarin30", {"Mic": "57 Dynamic", "Position": "2.8", "Distance": "3.5cm", "Low Cut": "85Hz", "High Cut": "7.8kHz"}),
+      m("21: 4x10 Tweed P10R", {"Mic": "121 Ribbon", "Position": "3.2", "Distance": "4.5cm", "Low Cut": "80Hz", "High Cut": "8.5kHz"}),
+      m("22: 4x10 US Super", {"Mic": "57 Dynamic", "Position": "3.0", "Distance": "4.5cm", "Low Cut": "80Hz", "High Cut": "8.5kHz"}),
+      m("23: 4x12 WhoWatt", {"Mic": "421 Dynamic", "Position": "3.0", "Distance": "4.0cm", "Low Cut": "80Hz", "High Cut": "8.2kHz"}),
+      m("24: 4x12 Greenback20", {"Mic": "57 Dynamic", "Position": "2.8", "Distance": "3.5cm", "Low Cut": "85Hz", "High Cut": "7.8kHz"}),
+      m("25: 4x12 Greenback25", {"Mic": "57 Dynamic", "Position": "2.8", "Distance": "3.5cm", "Low Cut": "85Hz", "High Cut": "7.8kHz"}),
+      m("26: 4x12 Greenback30", {"Mic": "121 Ribbon", "Position": "3.0", "Distance": "4.0cm", "Low Cut": "85Hz", "High Cut": "7.8kHz"}),
+      m("27: 4x12 1960A T75", {"Mic": "57 Dynamic", "Position": "2.6", "Distance": "3.0cm", "Low Cut": "85Hz", "High Cut": "7.6kHz"}),
+      m("28: 4x12 Blackback30", {"Mic": "57 Dynamic", "Position": "2.8", "Distance": "3.5cm", "Low Cut": "85Hz", "High Cut": "7.8kHz"}),
+      m("29: 4x12 Brit V30", {"Mic": "57 Dynamic", "Position": "2.5", "Distance": "3.0cm", "Low Cut": "85Hz", "High Cut": "7.6kHz"}),
+      m("30: 4x12 Cali V30", {"Mic": "57 Dynamic", "Position": "2.4", "Distance": "2.5cm", "Low Cut": "90Hz", "High Cut": "7.5kHz"}),
+      m("31: 4x12 Mandarin EM", {"Mic": "57 Dynamic", "Position": "2.8", "Distance": "3.5cm", "Low Cut": "85Hz", "High Cut": "7.8kHz"}),
+      m("32: 4x12 MOO)))N T75", {"Mic": "421 Dynamic", "Position": "3.2", "Distance": "4.0cm", "Low Cut": "75Hz", "High Cut": "7.5kHz"}),
+      m("33: 4x12 Cartog Guv", {"Mic": "57 Dynamic", "Position": "2.8", "Distance": "3.5cm", "Low Cut": "85Hz", "High Cut": "7.8kHz"}),
+      m("34: 4x12 Cartog C90", {"Mic": "57 Dynamic", "Position": "2.8", "Distance": "3.5cm", "Low Cut": "85Hz", "High Cut": "7.8kHz"}),
+      m("35: 4x12 Uber T75", {"Mic": "57 Dynamic", "Position": "2.5", "Distance": "3.0cm", "Low Cut": "90Hz", "High Cut": "7.5kHz"}),
+      m("36: 4x12 Uber V30", {"Mic": "57 Dynamic", "Position": "2.5", "Distance": "2.5cm", "Low Cut": "90Hz", "High Cut": "7.5kHz"}),
+      m("37: 4x12 XXL V30", {"Mic": "906 Dynamic", "Position": "2.5", "Distance": "2.5cm", "Low Cut": "90Hz", "High Cut": "7.5kHz"}),
+      m("38: 4x12 SoloLead EM", {"Mic": "57 Dynamic", "Position": "2.6", "Distance": "3.0cm", "Low Cut": "85Hz", "High Cut": "7.8kHz"})
+    ];
+
+    // 8. EQ (7 Ecualizadores Oficiales del Manual v2.50 numerados)
+    const EQ = [
+      m("1: Simple EQ", {"Low Gain": "0.0dB", "Mid Freq": "800Hz", "Mid Gain": "+1.5dB", "High Gain": "+1.0dB", "Level": "0.0dB"}),
+      m("2: Low and High Cut", {"Low Cut": "85Hz", "High Cut": "8.0kHz", "Level": "0.0dB"}),
+      m("3: Low/High Shelf", {"Low Freq": "110Hz", "Low Gain": "+1.0dB", "High Freq": "3.5kHz", "High Gain": "+1.5dB"}),
+      m("4: Parametric", {"Low Gain": "0.0dB", "Mid Freq": "1.2kHz", "Mid Q": "1.8", "Mid Gain": "+2.5dB", "High Gain": "0.0dB"}),
+      m("5: Tilt", {"Center Freq": "650Hz", "Tilt": "+15%", "Level": "0.0dB"}),
+      m("6: 10 Band Graphic", {"125Hz": "+1.5dB", "250Hz": "-1.0dB", "500Hz": "+2.0dB", "1kHz": "+3.0dB", "2kHz": "+2.0dB", "4kHz": "+1.0dB", "Level": "+1.0dB"}),
+      m("7: Cali Q Graphic", {"80Hz": "+4.5dB", "240Hz": "+1.0dB", "750Hz": "-5.5dB", "2200Hz": "+2.5dB", "6600Hz": "+4.0dB", "Level": "0.0dB"})
+    ];
+
+    // 9. MODULATION (28 Modulaciones Oficiales del Manual v2.50 numeradas)
+    const MOD = [
+      m("1: Optical Trem", {"Speed": "4.5", "Intensity": "55%", "Spread": "5.0", "Level": "+0.5dB"}),
+      m("2: 60s Bias Trem", {"Speed": "4.2", "Intensity": "60%", "Mode": "Tremolo", "Level": "+0.5dB"}),
+      m("3: Tremolo/Autopan", {"Speed": "4.8", "Depth": "65%", "Wave": "Triangle", "Spread": "6.0"}),
+      m("4: Harmonic Tremolo", {"Speed": "4.0", "Duty Cycle": "50%", "Bass": "5.5", "Treble": "6.0", "Mix": "75%"}),
+      m("5: Script Mod Phase", {"Speed": "2.8", "Mix": "50%", "Level": "0.0dB"}),
+      m("6: Pebble Phaser", {"Speed": "3.2", "Color": "On", "Mix": "50%", "Level": "0.0dB"}),
+      m("7: Ubiquitous Vibe", {"Speed": "3.8", "Intensity": "65%", "Mode": "Chorus", "Lamp Bias": "5.5", "Mix": "50%"}),
+      m("8: Deluxe Phaser", {"Speed": "3.0", "Depth": "60%", "Feedback": "35%", "Stages": "8", "Mix": "50%"}),
+      m("9: Gray Flanger", {"Rate": "2.5", "Width": "65%", "Manual": "5.5", "Regen": "50%", "Mix": "45%"}),
+      m("10: Harmonic Flanger", {"Range": "5.5", "Enhance": "6.0", "Manual": "5.0", "Speed": "2.8", "Mix": "45%"}),
+      m("11: Courtesan Flange", {"Rate": "3.0", "Range": "6.0", "Color": "5.5", "Mode": "Filter", "Mix": "50%"}),
+      m("12: Chorus", {"Speed": "3.2", "Depth": "55%", "Predelay": "3.5", "Tone": "6.0", "Mix": "45%"}),
+      m("13: 70s Chorus", {"Chorus Int": "5.8", "Vib Speed": "4.0", "Vib Depth": "4.5", "Mode": "Chorus", "Mix": "50%"}),
+      m("14: PlastiChorus", {"Rate": "3.5", "Depth": "60%", "Tone": "6.2", "Mode": "Stereo", "Mix": "50%"}),
+      m("15: Trinity Chorus", {"Rate": "3.2", "Left": "6.0", "Center": "5.5", "Right": "6.0", "Mix": "50%"}),
+      m("16: 4-Voice Chorus", {"Speed": "3.0", "Depth": "55%", "Voices": "4", "Tone": "6.0", "Mix": "45%"}),
+      m("17: Bubble Vibrato", {"Rate": "4.5", "Depth": "50%", "Rise Time": "3.5", "Mix": "100%"}),
+      m("18: Vibe Rotary", {"Speed": "Slow", "Drive": "3.5", "Blend": "60%", "Mix": "85%"}),
+      m("19: 122 Rotary", {"Speed": "Fast", "Drive": "4.0", "Horn Depth": "6.0", "Drum Depth": "5.5", "Mix": "85%"}),
+      m("20: 145 Rotary", {"Speed": "Fast", "Drive": "4.2", "Horn": "6.2", "Drum": "5.5", "Mix": "85%"}),
+      m("21: Retro Reel", {"Wow/Fluttr": "4.5", "Saturation": "5.0", "Texture": "4.5", "Tape Speed": "15ips"}),
+      m("22: Double Take", {"Width": "65%", "Voices": "2", "Wet": "50%", "Dry": "100%"}),
+      m("23: Script Phase", {"Speed": "2.8", "Mix": "50%", "Level": "0.0dB"}),
+      m("24: U-Vibe", {"Speed": "3.8", "Depth": "65%", "Mix": "50%", "Level": "0.0dB"}),
+      m("25: Dimension", {"Sw 1": "On", "Sw 2": "On", "Sw 3": "Off", "Sw 4": "Off", "Mix": "55%"}),
+      m("26: Analog Chorus", {"Speed": "3.2", "Depth": "58%", "ChVib": "Chorus", "Tone": "6.0", "Mix": "50%"}),
+      m("27: Tri Chorus", {"Speed": "3.0", "Depth 1": "55%", "Depth 2": "60%", "Depth 3": "55%", "Mix": "50%"}),
+      m("28: Analog Flanger", {"Speed": "2.5", "Depth": "60%", "Feedback": "45%", "Manual": "5.5", "Mix": "45%"})
+    ];
+
+    // 10. DELAY (24 Delays Oficiales del Manual v2.50 numerados)
+    const DELAY = [
+      m("1: Simple Delay", {"Time": "380ms", "Feedback": "30%", "Scale": "100%", "Mix": "25%", "Trails": "On"}),
+      m("2: Mod/Chorus Echo", {"Time": "420ms", "Feedback": "32%", "Mod Speed": "3.2", "Depth": "45%", "Mix": "28%"}),
+      m("3: Dual Delay", {"Left Time": "340ms", "Right Time": "500ms", "L Feedback": "30%", "R Feedback": "35%", "Mix": "30%"}),
+      m("4: Multitap 4", {"Time": "480ms", "Feedback": "35%", "Diffusion": "50%", "Mod Depth": "40%", "Mix": "30%"}),
+      m("5: Multitap 6", {"Time": "520ms", "Feedback": "35%", "Diffusion": "55%", "Mix": "30%"}),
+      m("6: Ping Pong", {"Time": "400ms", "Feedback": "35%", "Scale": "75%", "Spread": "10.0", "Mix": "28%"}),
+      m("7: Sweep Echo", {"Time": "450ms", "Feedback": "38%", "Filter Speed": "3.5", "Filter Depth": "65%", "Mix": "30%"}),
+      m("8: Ducked Delay", {"Time": "420ms", "Feedback": "32%", "Threshold": "-32.0dB", "Ducking": "65%", "Mix": "30%"}),
+      m("9: Reverse Delay", {"Time": "500ms", "Feedback": "35%", "Mod Speed": "2.5", "Mix": "35%"}),
+      m("10: Vintage Digital", {"Time": "440ms", "Feedback": "34%", "Bit Depth": "16bit", "Rate": "32kHz", "Mix": "28%"}),
+      m("11: Vintage Swell", {"Time": "500ms", "Feedback": "40%", "Attack": "450ms", "Depth": "85%", "Mix": "35%"}),
+      m("12: Pitch Echo", {"Time": "420ms", "Feedback": "35%", "Interval": "+12", "Cents": "0.0", "Mix": "28%"}),
+      m("13: Transistor Tape", {"Time": "360ms", "Feedback": "32%", "Wow/Fluttr": "4.5", "Headroom": "0.0dB", "Mix": "26%"}),
+      m("14: Harmony Delay", {"Time": "420ms", "Feedback": "30%", "Key": "E", "Scale": "Major", "Mix": "30%"}),
+      m("15: Bucket Brigade", {"Time": "340ms", "Feedback": "30%", "Noise": "3.0", "Mod Speed": "3.0", "Mix": "25%"}),
+      m("16: Adriatic Delay", {"Time": "380ms", "Feedback": "34%", "Noise": "3.2", "BBD Size": "4096", "Mix": "28%"}),
+      m("17: Adriatic Swell", {"Time": "460ms", "Feedback": "38%", "Threshold": "-40.0dB", "Attack": "400ms", "Mix": "35%"}),
+      m("18: Elephant Man", {"Time": "380ms", "Feedback": "32%", "Mode": "Chorus", "Depth": "45%", "Mix": "28%"}),
+      m("19: Multi Pass", {"Time": "450ms", "Feedback": "35%", "Tap 1-4": "On", "Mix": "30%"}),
+      m("20: Glitch Delay", {"Time": "400ms", "Slice": "4", "Pitch": "50%", "Shuffle": "40%", "Mix": "35%"}),
+      m("21: Euclidean Delay", {"Time": "420ms", "Steps": "8", "Fills": "5", "Feedback": "35%", "Mix": "30%"}),
+      m("22: ADT", {"Delay 1": "25ms", "Wow/Fluttr": "4.0", "Distortion": "2.0", "Mix": "50%"}),
+      m("23: Tape Echo", {"Time": "360ms", "Feedback": "30%", "Bass": "5.0", "Treble": "5.5", "Mix": "26%"}),
+      m("24: Multi-Head", {"Time": "380ms", "Feedback": "35%", "Heads 1-2": "On", "Bass": "5.0", "Mix": "28%"})
+    ];
+
+    // 11. REVERB (23 Reverbs Oficiales del Manual v2.50 numeradas)
+    const REVERB = [
+      m("1: Dynamic Hall", {"Decay": "3.2s", "Predelay": "25ms", "Damping": "3.8kHz", "Motion": "3.5", "Mix": "26%"}),
+      m("2: Dynamic Plate", {"Decay": "2.4s", "Predelay": "18ms", "Damping": "4.5kHz", "Low Cut": "90Hz", "Mix": "22%"}),
+      m("3: Dynamic Room", {"Decay": "1.6s", "Predelay": "12ms", "Diffusion": "70%", "Damping": "4.0kHz", "Mix": "20%"}),
+      m("4: Dynamic Ambience", {"Decay": "0.8s", "Room Size": "12m", "Predelay": "8ms", "Damping": "5.0kHz", "Mix": "22%"}),
+      m("5: Shimmer", {"Decay": "5.5s", "Predelay": "35ms", "Pitch 1": "+12", "Intensity": "6.5", "Mix": "38%"}),
+      m("6: Hot Springs", {"Dwell": "5.2", "Spring Count": "3", "High Cut": "4.5kHz", "Drip": "On", "Mix": "25%"}),
+      m("7: Glitz", {"Decay": "3.8s", "Predelay": "30ms", "Depth": "55%", "Rate": "2.8", "Mix": "30%"}),
+      m("8: Ganymede", {"Decay": "4.2s", "Predelay": "28ms", "Tone": "6.0", "Modulation": "5.5", "Mix": "32%"}),
+      m("9: Searchlights", {"Decay": "5.0s", "Predelay": "35ms", "Intensity": "6.5", "Modulation": "6.0", "Mix": "36%"}),
+      m("10: Plateaux", {"Decay": "4.8s", "Predelay": "30ms", "Pitch 1": "+12", "Pitch 2": "-12", "Mix": "35%"}),
+      m("11: Double Tank", {"Decay": "3.0s", "Predelay": "20ms", "Modulation": "4.5", "High Cut": "5.0kHz", "Mix": "26%"}),
+      m("12: Plate", {"Decay": "4.8", "Predelay": "18ms", "Tone": "6.0", "Mix": "22%"}),
+      m("13: Room", {"Decay": "3.8", "Predelay": "12ms", "Tone": "5.8", "Mix": "20%"}),
+      m("14: Chamber", {"Decay": "4.5", "Predelay": "20ms", "Tone": "6.0", "Mix": "24%"}),
+      m("15: Hall", {"Decay": "5.5", "Predelay": "28ms", "Tone": "6.0", "Mix": "26%"}),
+      m("16: Echo", {"Decay": "5.0", "Predelay": "60ms", "Tone": "5.5", "Mix": "25%"}),
+      m("17: Tile", {"Decay": "3.5", "Predelay": "10ms", "Tone": "6.5", "Mix": "20%"}),
+      m("18: Cave", {"Decay": "7.2", "Predelay": "45ms", "Tone": "5.0", "Mix": "32%"}),
+      m("19: Ducking", {"Decay": "5.2", "Predelay": "25ms", "Tone": "6.0", "Mix": "28%"}),
+      m("20: Octo", {"Decay": "6.8", "Time": "6.0", "Tone": "6.5", "Mix": "38%"}),
+      m("21: '63 Spring", {"Decay": "4.5", "Predelay": "0ms", "Tone": "6.2", "Mix": "24%"}),
+      m("22: Spring", {"Decay": "4.2", "Predelay": "0ms", "Tone": "6.0", "Mix": "22%"}),
+      m("23: Particle Verb", {"Dwell": "6.5", "Condition": "Stable", "Gain": "0.0dB", "Mix": "38%"})
+    ];
+    // PRESETS UNIVERSALES VERIFICADOS (CON SECCIÓN DIFERENCIADA SOLO vs INTRO Y NÚMERO DE ORDEN)
     const UNIVERSAL_PRESETS = {
       "podgo_univ_soda_ligera": {
         id: "podgo_univ_soda_ligera",
         title: "SODA STEREO - DE MÚSICA LIGERA",
         section: "main",
         bank: "01A",
-        desc: "Gustavo Cerati iconic Roland JC-120 clean/crunch rig with punchy Dyna Comp, Timmy OD, 70s Chorus and Hall Reverb.",
+        desc: "Gustavo Cerati iconic Roland JC-120 rig with Red Squeeze compression, Teemah! crunch, 70s Chorus, Simple Delay & Dynamic Hall.",
         pickup: "Bridge",
         inputGate: "-48.0dB / 35%",
         ctrls: ["FS1: Red Squeeze", "FS2: Teemah!", "FS3: 70s Chorus", "Snap 1: Riff | Snap 2: Drive | Snap 3: Solo"],
         rating: 5.0,
-        votesCount: 12,
+        votesCount: 14,
         isFav: false,
         blocks: [
-          { type: "DYN", model: "Red Squeeze", knobs: { "Sens": 6.2, "Mix": "80%", "Level": "+1.5dB" } },
-          { type: "DIST", model: "Teemah!", knobs: { "Gain": 2.8, "Bass": 4.5, "Treble": 6.5, "Level": 7.0 } },
-          { type: "AMP", model: "Jazz Rivet 120", knobs: { "Drive": 3.0, "Bass": 5.2, "Mid": 5.8, "Treble": 7.2, "Presence": 6.0 } },
-          { type: "CAB", model: "2x12 Jazz Rivet", knobs: { "Mic": "57 Dynamic", "Distance": "5.0cm", "Low Cut": "80Hz", "High Cut": "8.5kHz" } },
-          { type: "MOD", model: "70s Chorus", knobs: { "Speed": 3.5, "Depth": 5.5, "Mix": "45%" } },
-          { type: "REVERB", model: "Dynamic Hall", knobs: { "Decay": 2.8, "Predelay": "25ms", "Mix": "28%" } }
+          { type: "DYN", model: "2: Red Squeeze", knobs: DYN[1].knobs(), displayKnobs: { "Sens": "6.2", "Mix": "85%", "Level": "+2.0dB" } },
+          { type: "DIST", model: "4: Teemah!", knobs: DIST[3].knobs(), displayKnobs: { "Gain": "2.8", "Bass": "4.5", "Treble": "6.5", "Level": "7.0" } },
+          { type: "AMP", model: "25: Jazz Rivet 120", knobs: AMP[24].knobs(), displayKnobs: { "Drive": "3.0", "Bass": "5.2", "Mid": "5.8", "Treble": "7.2", "Presence": "6.0" } },
+          { type: "CAB", model: "18: 2x12 Jazz Rivet", knobs: CAB[17].knobs(), displayKnobs: { "Mic": "57 Dynamic", "Distance": "5.0cm", "Low Cut": "80Hz", "High Cut": "8.5kHz" } },
+          { type: "MOD", model: "13: 70s Chorus", knobs: MOD[12].knobs(), displayKnobs: { "Chorus Int": "5.8", "Vib Speed": "4.0", "Mix": "45%" } },
+          { type: "DELAY", model: "1: Simple Delay", knobs: DELAY[0].knobs(), displayKnobs: { "Time": "380ms", "Feedback": "22%", "Mix": "20%" } },
+          { type: "REVERB", model: "1: Dynamic Hall", knobs: REVERB[0].knobs(), displayKnobs: { "Decay": "2.8s", "Predelay": "25ms", "Mix": "26%" } }
         ]
       },
       "podgo_univ_audioslave_stone_solo": {
@@ -542,20 +879,20 @@
         title: "AUDIOSLAVE - LIKE A STONE (SOLO)",
         section: "solo",
         bank: "01B",
-        desc: "Tom Morello screaming JCM-800 Solo tone with Pitch Wham (+2 Octaves) assigned to EXP 1 and Digital Delay.",
+        desc: "Tom Morello screaming JCM-800 Solo tone with Pitch Wham (+2 Octaves) mapped to EXP 1, 10-Band EQ and Vintage Digital Delay.",
         pickup: "Neck",
         inputGate: "-42.0dB / 25%",
         ctrls: ["EXP 1: Pitch Wham (0 to +2 Oct)", "FS1: Pitch Wham", "FS2: Vintage Digital", "Snap 1: Solo Whammy"],
         rating: 5.0,
-        votesCount: 18,
+        votesCount: 19,
         isFav: false,
         blocks: [
-          { type: "PITCH", model: "Pitch Wham", knobs: { "Heel": 0.0, "Toe": "+2 Oct", "Mix": "100%" } },
-          { type: "AMP", model: "Brit 2203", knobs: { "Drive": 7.2, "Bass": 6.5, "Mid": 7.5, "Treble": 6.8, "Presence": 6.2 } },
-          { type: "CAB", model: "4x12 Greenback25", knobs: { "Mic": "57 Dynamic", "Distance": "3.5cm", "Low Cut": "85Hz", "High Cut": "7.8kHz" } },
-          { type: "EQ", model: "10 Band Graphic", knobs: { "500Hz": "+2.0dB", "1kHz": "+3.2dB", "Level": "+1.5dB" } },
-          { type: "DELAY", model: "Vintage Digital", knobs: { "Time": "440ms", "Feedback": "38%", "Mix": "32%" } },
-          { type: "REVERB", model: "Dynamic Plate", knobs: { "Decay": 2.2, "Predelay": "18ms", "Mix": "22%" } }
+          { type: "PITCH", model: "1: Pitch Wham", knobs: PITCH[0].knobs(), displayKnobs: { "Heel": "0", "Toe": "+2 Oct", "Mix": "100%" } },
+          { type: "AMP", model: "44: Brit 2203", knobs: AMP[43].knobs(), displayKnobs: { "Drive": "7.2", "Bass": "6.5", "Mid": "7.5", "Treble": "6.8", "Presence": "6.2" } },
+          { type: "CAB", model: "25: 4x12 Greenback25", knobs: CAB[24].knobs(), displayKnobs: { "Mic": "57 Dynamic", "Distance": "3.5cm", "Low Cut": "85Hz", "High Cut": "7.8kHz" } },
+          { type: "EQ", model: "6: 10 Band Graphic", knobs: EQ[5].knobs(), displayKnobs: { "500Hz": "+2.0dB", "1kHz": "+3.0dB", "Level": "+1.5dB" } },
+          { type: "DELAY", model: "10: Vintage Digital", knobs: DELAY[9].knobs(), displayKnobs: { "Time": "440ms", "Feedback": "38%", "Mix": "32%" } },
+          { type: "REVERB", model: "2: Dynamic Plate", knobs: REVERB[1].knobs(), displayKnobs: { "Decay": "2.2s", "Predelay": "18ms", "Mix": "22%" } }
         ]
       },
       "podgo_univ_audioslave_stone_intro": {
@@ -563,20 +900,20 @@
         title: "AUDIOSLAVE - LIKE A STONE (INTRO)",
         section: "intro",
         bank: "01C",
-        desc: "Hypnotic clean neck-pickup arpeggio with Optical Tremolo pulse and subtle Transistor Tape slapback.",
+        desc: "Hypnotic clean neck-pickup arpeggio with LA Studio Comp, Brit J45 Nrm, Optical Tremolo pulse and Transistor Tape slapback.",
         pickup: "Neck",
         inputGate: "-52.0dB / 40%",
         ctrls: ["FS1: Optical Trem", "FS2: Transistor Tape", "Snap 1: Intro Clean | Snap 2: Verse"],
         rating: 4.9,
-        votesCount: 9,
+        votesCount: 11,
         isFav: false,
         blocks: [
-          { type: "DYN", model: "LA Studio Comp", knobs: { "Peak Red": 5.0, "Gain": 5.5, "Mix": "75%" } },
-          { type: "AMP", model: "Brit J45 Nrm", knobs: { "Drive": 2.4, "Bass": 5.0, "Mid": 6.0, "Treble": 6.4, "Presence": 5.5 } },
-          { type: "CAB", model: "4x12 Greenback25", knobs: { "Mic": "121 Ribbon", "Distance": "6.0cm", "Low Cut": "90Hz", "High Cut": "8.0kHz" } },
-          { type: "MOD", model: "Optical Trem", knobs: { "Speed": 4.2, "Intensity": "42%", "Level": "+0.5dB" } },
-          { type: "DELAY", model: "Transistor Tape", knobs: { "Time": "280ms", "Feedback": "22%", "Mix": "20%" } },
-          { type: "REVERB", model: "Dynamic Room", knobs: { "Decay": 1.9, "Predelay": "15ms", "Mix": "25%" } }
+          { type: "DYN", model: "6: LA Studio Comp", knobs: DYN[5].knobs(), displayKnobs: { "Peak Red": "5.0", "Gain": "5.5", "Mix": "75%" } },
+          { type: "AMP", model: "34: Brit J45 Nrm", knobs: AMP[33].knobs(), displayKnobs: { "Drive": "2.4", "Bass": "5.0", "Mid": "6.0", "Treble": "6.4", "Presence": "5.5" } },
+          { type: "CAB", model: "25: 4x12 Greenback25", knobs: CAB[24].knobs(), displayKnobs: { "Mic": "121 Ribbon", "Distance": "6.0cm", "Low Cut": "90Hz", "High Cut": "8.0kHz" } },
+          { type: "MOD", model: "1: Optical Trem", knobs: MOD[0].knobs(), displayKnobs: { "Speed": "4.2", "Intensity": "42%", "Level": "+0.5dB" } },
+          { type: "DELAY", model: "13: Transistor Tape", knobs: DELAY[12].knobs(), displayKnobs: { "Time": "280ms", "Feedback": "22%", "Mix": "20%" } },
+          { type: "REVERB", model: "3: Dynamic Room", knobs: REVERB[2].knobs(), displayKnobs: { "Decay": "1.9s", "Predelay": "15ms", "Mix": "25%" } }
         ]
       }
     };
@@ -586,8 +923,7 @@
     let pendingSearchQuery = '';
     let pendingSearchSection = 'main';
 
-    // --- MOTOR INTELIGENTE ANTI-DUPLICADOS CON DETECTOR DE SECCIONES (SOLO vs INTRO) ---
-    const STOP_WORDS = new Set(['ai', 'preset', 'tone', 'pod', 'go', 'line', 'the', 'a', 'an', 'of', 'in', 'on', 'for', 'to', 'and', 'by', 'de', 'la', 'el', 'los', 'las', 'un', 'una', 'con', 'del', 'al', 'y', 'en']);
+    const STOP_WORDS = new Set(['ai', 'preset', 'tone', 'pod', 'go', 'line', 'line6', 'the', 'a', 'an', 'of', 'in', 'on', 'for', 'to', 'and', 'by', 'de', 'la', 'el', 'los', 'las', 'un', 'una', 'con', 'del', 'al', 'y', 'en']);
 
     const SECTION_MAP = {
       solo: ["solo", "solos", "lead", "punteo"],
@@ -597,8 +933,23 @@
       chorus: ["chorus", "coro", "estribillo"]
     };
 
+    // Detector silencioso para activar Synth/Pitch/Filter experimental cuando el usuario pide creaciones especiales
+    function isSpecialSynthCreationRequest(str) {
+      if (!str) return false;
+      const clean = str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const synthTriggers = [
+        "crear", "creacion", "creaciones", "create", "creation",
+        "atmosferico", "atmosfericos", "admosferico", "admosfericos", "atmospheric", "ambient",
+        "luminoso", "luminosos", "luces brillantes", "brillante", "brillantes",
+        "oscuro", "oscuros", "dark",
+        "experimental", "experimentales", "synth", "sintetizador"
+      ];
+      return synthTriggers.some(keyword => clean.includes(keyword));
+    }
+
     function detectSection(str) {
       if (!str) return "main";
+      if (isSpecialSynthCreationRequest(str)) return "synth";
       const words = str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, " ").split(/\s+/);
       for (const w of words) {
         for (const [sec, aliases] of Object.entries(SECTION_MAP)) {
@@ -648,7 +999,6 @@
       return dist <= allowedErrors;
     }
 
-    // Compara canción (con tolerancia a errores de ortografía) + exige que coincida la SECCIÓN (Solo vs Intro)
     function isSmartPresetMatch(userQuery, presetObjOrTitle) {
       const presetTitle = typeof presetObjOrTitle === 'string' ? presetObjOrTitle : (presetObjOrTitle.title || "");
       const presetSection = (typeof presetObjOrTitle === 'object' && presetObjOrTitle.section)
@@ -656,8 +1006,6 @@
         : detectSection(presetTitle);
 
       const querySection = detectSection(userQuery);
-
-      // Si el usuario pide "like a stone intro" y el preset guardado es "solo", NO coinciden
       if (querySection !== presetSection) return false;
 
       const qNorm = normalizeText(userQuery);
@@ -679,7 +1027,7 @@
     }
 
     window.updateApiStatus = function() {
-      const key = window.cloudGeminiKey || localStorage.getItem('PODGO_GEMINI_KEY');
+      const key = window.cloudGeminiKey || localStorage.getItem('PODGO_GEMINI_KEY') || localStorage.getItem('GE300_GEMINI_KEY');
       const icon = document.getElementById('keyIcon');
       if (!icon) return;
       if (key && key.trim() !== '') {
@@ -695,7 +1043,7 @@
       const modal = document.getElementById('apiKeyModal');
       if (modal) {
         modal.classList.toggle('hidden');
-        const savedKey = window.cloudGeminiKey || localStorage.getItem('PODGO_GEMINI_KEY');
+        const savedKey = window.cloudGeminiKey || localStorage.getItem('PODGO_GEMINI_KEY') || localStorage.getItem('GE300_GEMINI_KEY');
         if (savedKey) document.getElementById('apiKeyInput').value = savedKey;
       }
     }
@@ -720,43 +1068,295 @@
       }
     }
 
-    // --- MOTOR IA TURBO GEMINI FLASH CON INYECCIÓN DEL MANUAL LINE 6 POD GO v2.50 ---
+    function switchTab(tab) {
+      document.getElementById('viewSearch').classList.add('hidden');
+      document.getElementById('viewLibrary').classList.add('hidden');
+      document.getElementById('navSearch').classList.replace('text-brand-accent', 'text-brand-muted');
+      
+      const libBtn = document.getElementById('libraryNavBtn');
+      if (libBtn) libBtn.classList.replace('text-brand-accent', 'text-brand-muted');
+
+      if (tab === 'search') {
+        document.getElementById('viewSearch').classList.remove('hidden');
+        document.getElementById('viewSearch').classList.add('flex');
+        document.getElementById('navSearch').classList.replace('text-brand-muted', 'text-brand-accent');
+      } else if (tab === 'library') {
+        document.getElementById('viewLibrary').classList.remove('hidden');
+        document.getElementById('viewLibrary').classList.add('flex');
+        if (libBtn) libBtn.classList.replace('text-brand-muted', 'text-brand-accent');
+        renderLibrary();
+      }
+    }
+
+    function toggleEditMode() {
+      isEditMode = !isEditMode;
+      const container = document.getElementById('mainPresetContainer');
+      const btnEdit = document.getElementById('btnEdit');
+      const badge = document.getElementById('editStatusBadge');
+      if (isEditMode) {
+        container.classList.remove('view-mode');
+        container.classList.add('edit-mode');
+        btnEdit.innerHTML = `<i class="fa-solid fa-lock-open text-brand-accent"></i> <span class="text-brand-accent">Done</span>`;
+        badge.innerHTML = `🔓 Edit Mode (Drag Bars)`;
+        badge.className = "text-[9px] text-yellow-400 bg-yellow-400/10 px-2 py-0.5 rounded font-mono border border-yellow-400/20";
+      } else {
+        container.classList.add('view-mode');
+        container.classList.remove('edit-mode');
+        btnEdit.innerHTML = `<i class="fa-solid fa-pen-to-square"></i> <span>Edit</span>`;
+        badge.innerHTML = `🔒 Safe Mode`;
+        badge.className = "text-[9px] text-brand-accent bg-brand-accent/10 px-2 py-0.5 rounded font-mono border border-brand-accent/20";
+      }
+    }
+
+    function loadPresetFromLibrary(cacheKey, isUniversal = false) {
+      let presetData = isUniversal
+        ? UNIVERSAL_PRESETS[cacheKey]
+        : (JSON.parse(localStorage.getItem(cacheKey)) || window.globalCloudPresets[cacheKey]);
+      if (presetData) {
+        currentCacheKey = cacheKey;
+        renderPreset(presetData, isUniversal);
+        switchTab('search');
+      }
+    }
+
+    // --- PURGA DE CACHÉ Y NUBE EXCLUSIVA DE POD GO (NO TOCA JAMÁS LOS DE MOOER GE300) ---
+    async function purgeAllPresetsCache() {
+      const currentUser = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+      const userEmail = currentUser && currentUser.email ? currentUser.email.toLowerCase() : "";
+      if (userEmail !== "faustolute@gmail.com") return;
+
+      if (!confirm("⚠️ ADMIN PURGE (POD GO ONLY): Delete ALL PODGO_CACHE_ presets from Local Cache and Cloud Vault to start fresh? (MOOER GE300 presets will NOT be touched)")) {
+        return;
+      }
+
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('PODGO_CACHE_') || k.startsWith('podgo_voted_PODGO_CACHE_'))) {
+          keysToRemove.push(k);
+        }
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+
+      try {
+        if (window.firebaseDb && window.firestoreCollection && window.firestoreGetDocs && window.firestoreDeleteDoc && window.firestoreDoc) {
+          const presetsCol = window.firestoreCollection(window.firebaseDb, "global_presets");
+          const snapshot = await window.firestoreGetDocs(presetsCol);
+          const deletePromises = [];
+          snapshot.forEach(docSnap => {
+            if (docSnap.id.startsWith('PODGO_CACHE_')) {
+              deletePromises.push(window.firestoreDeleteDoc(window.firestoreDoc(window.firebaseDb, "global_presets", docSnap.id)));
+            }
+          });
+          await Promise.all(deletePromises);
+        }
+      } catch (e) {
+        console.error("Error purging POD Go cloud presets:", e);
+      }
+
+      window.globalCloudPresets = {};
+      currentCacheKey = 'podgo_univ_soda_ligera';
+      renderPreset(UNIVERSAL_PRESETS["podgo_univ_soda_ligera"], true);
+      renderLibrary();
+      alert("✅ All Line 6 POD Go cached and cloud presets have been purged!");
+    }
+
+    async function deleteSingleVaultPreset(event, key) {
+      event.stopPropagation();
+      const currentUser = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+      const userEmail = currentUser && currentUser.email ? currentUser.email.toLowerCase() : "";
+      if (userEmail !== "faustolute@gmail.com") return;
+
+      if (!confirm("Delete this POD Go preset from Local Cache and Cloud Vault?")) return;
+
+      localStorage.removeItem(key);
+      localStorage.removeItem(`podgo_voted_${key}`);
+      delete window.globalCloudPresets[key];
+
+      try {
+        if (window.firebaseDb && window.firestoreDeleteDoc && window.firestoreDoc) {
+          await window.firestoreDeleteDoc(window.firestoreDoc(window.firebaseDb, "global_presets", key));
+        }
+      } catch (e) {
+        console.error("Error deleting cloud preset:", e);
+      }
+
+      if (currentCacheKey === key) {
+        currentCacheKey = 'podgo_univ_soda_ligera';
+        renderPreset(UNIVERSAL_PRESETS["podgo_univ_soda_ligera"], true);
+      }
+      renderLibrary();
+    }
+
+    function renderLibrary() {
+      const currentUser = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+      const userEmail = currentUser && currentUser.email ? currentUser.email.toLowerCase() : "";
+      const userUid = currentUser ? currentUser.uid : "guest";
+      const isAdmin = userEmail === "faustolute@gmail.com";
+
+      const featuredContainer = document.getElementById('featuredList');
+      featuredContainer.innerHTML = '';
+      Object.keys(UNIVERSAL_PRESETS).forEach(key => {
+        let p = UNIVERSAL_PRESETS[key];
+        featuredContainer.innerHTML += `
+          <div class="bg-brand-panel border border-brand-border/60 p-3 rounded-xl flex items-center justify-between cursor-pointer hover:bg-brand-card transition-colors" onclick="loadPresetFromLibrary('${key}', true)">
+            <div>
+              <h4 class="text-xs font-bold text-white">${p.title}</h4>
+              <div class="flex items-center gap-2 mt-1">
+                <span class="text-[9px] font-mono text-brand-accent bg-brand-accent/10 px-1.5 rounded border border-brand-accent/20">FEATURED v2.50</span>
+                <span class="text-[9px] font-mono text-slate-400 uppercase">${p.section || 'main'}</span>
+                <span class="text-[9px] text-yellow-400">★★★★★ ${(Number(p.rating) || 5.0).toFixed(1)}</span>
+              </div>
+            </div>
+            <i class="fa-solid fa-chevron-right text-brand-muted text-xs"></i>
+          </div>`;
+      });
+
+      const favContainer = document.getElementById('favoritesList');
+      favContainer.innerHTML = '';
+      let hasFavs = false;
+      let allCachedItemsHtml = '';
+      let totalCachedCount = 0;
+
+      for (let i = 0; i < localStorage.length; i++) {
+        let key = localStorage.key(i);
+        if (key && key.startsWith('PODGO_CACHE_')) {
+          try {
+            let p = JSON.parse(localStorage.getItem(key));
+            let isFavForThisUser = Array.isArray(p.favUsers)
+              ? p.favUsers.includes(userUid)
+              : (isAdmin && p.isFav === true);
+
+            if (isFavForThisUser) {
+              hasFavs = true;
+              favContainer.innerHTML += `
+                <div class="bg-brand-panel border border-brand-border/60 p-3 rounded-xl flex items-center justify-between cursor-pointer hover:bg-brand-card transition-colors">
+                  <div class="flex-1" onclick="loadPresetFromLibrary('${key}', false)">
+                    <h4 class="text-xs font-bold text-white truncate max-w-[210px]">${p.title}</h4>
+                    <span class="text-[9px] font-mono text-yellow-400">★ ${(Number(p.rating) || 4.9).toFixed(1)} (${p.votesCount || 1})</span>
+                  </div>
+                  <button onclick="deleteFavorite('${key}')" class="p-2 text-brand-muted hover:text-red-500 transition-colors">
+                    <i class="fa-solid fa-trash text-xs"></i>
+                  </button>
+                </div>`;
+            }
+
+            if (isAdmin) {
+              totalCachedCount++;
+              allCachedItemsHtml += `
+                <div class="bg-brand-panel/70 border border-brand-accent/30 p-3 rounded-xl flex items-center justify-between cursor-pointer hover:bg-brand-card transition-colors" onclick="loadPresetFromLibrary('${key}', false)">
+                  <div class="flex-1 pr-2">
+                    <h4 class="text-xs font-bold text-white truncate max-w-[210px]">${p.title}</h4>
+                    <span class="text-[9px] font-mono text-brand-accent">★ ${(Number(p.rating) || 4.9).toFixed(1)} • ${(p.blocks || []).length} BLOCKS</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button onclick="deleteSingleVaultPreset(event, '${key}')" title="Delete & Regenerate Preset" class="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 transition-colors">
+                      <i class="fa-solid fa-trash-can text-xs"></i>
+                    </button>
+                    <i class="fa-solid fa-unlock-keyhole text-brand-accent text-xs"></i>
+                  </div>
+                </div>`;
+            }
+          } catch(e) {}
+        }
+      }
+
+      if (!hasFavs) {
+        favContainer.innerHTML = `<p class="text-[11px] text-brand-muted italic bg-brand-card p-3 rounded-lg border border-brand-border/30">No favorites saved yet. Tap the ❤️ icon on any tone to save it here.</p>`;
+      }
+
+      let adminVaultEl = document.getElementById('adminMasterVault');
+      if (isAdmin) {
+        if (!adminVaultEl) {
+          adminVaultEl = document.createElement('div');
+          adminVaultEl.id = 'adminMasterVault';
+          adminVaultEl.className = 'space-y-3 pt-4 border-t border-brand-accent/30';
+          document.getElementById('viewLibrary').appendChild(adminVaultEl);
+        }
+        adminVaultEl.innerHTML = `
+          <div class="flex items-center justify-between border-b border-brand-border pb-2">
+            <h2 class="text-xs font-bold font-mono text-brand-accent uppercase flex items-center gap-1.5">
+              <i class="fa-solid fa-vault"></i> Admin Secret Vault (${totalCachedCount})
+            </h2>
+            <button onclick="purgeAllPresetsCache()" class="bg-red-500/15 hover:bg-red-500/30 text-red-400 border border-red-500/40 font-mono font-bold text-[10px] px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer">
+              <i class="fa-solid fa-broom"></i> Purge POD Go Cache
+            </button>
+          </div>
+          <div class="grid grid-cols-1 gap-2.5">
+            ${allCachedItemsHtml || '<p class="text-[11px] text-brand-muted italic">Vault is clean. Generate new tones with the full Line 6 POD Go v2.50 catalog!</p>'}
+          </div>`;
+      } else if (adminVaultEl) {
+        adminVaultEl.remove();
+      }
+    }
+
+    function deleteFavorite(key) {
+      if (confirm("Remove from favorites?")) {
+        const currentUser = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+        const userUid = currentUser ? currentUser.uid : "guest";
+        let p = JSON.parse(localStorage.getItem(key));
+        if (Array.isArray(p.favUsers)) {
+          p.favUsers = p.favUsers.filter(id => id !== userUid);
+        }
+        p.isFav = false;
+        localStorage.setItem(key, JSON.stringify(p));
+        renderLibrary();
+      }
+    }
+
+    function fuzzyMatchModel(list, query) {
+      if (!query || query === "None") return null;
+      const numMatch = String(query).match(/^(\d+)\s*:/);
+      if (numMatch) {
+        const exactNum = list.find(x => x.name.startsWith(numMatch[1] + ":"));
+        if (exactNum) return exactNum;
+      }
+      let q = query.toLowerCase().replace(/[^a-z0-9]/g, '');
+      return list.find(x => x.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(q) || q.includes(x.name.toLowerCase().replace(/[^a-z0-9]/g, '')));
+    }
+
+    function formatCatalogWithKnobs(list) {
+      return list.map(item => {
+        const kObj = item.knobs();
+        const kPairs = Object.entries(kObj).map(([k, v]) => `${k}=${v}`).join(', ');
+        return `${item.name} [${kPairs}]`;
+      }).join(' | ');
+    }
+
+    // --- MOTOR IA CON PROTOCOLO DE RIG HISTÓRICO Y CATÁLOGO NUMERADO LINE 6 POD GO v2.50 ---
     async function fetchAITone(query, section, apiKey) {
+      const allowSynth = isSpecialSynthCreationRequest(query);
       const sectionLabel = section && section !== 'main' ? section.toUpperCase() : 'MAIN TONE';
-      const prompt = `You are a Line 6 POD Go Firmware v2.50 expert audio engineer. Create the exact guitar tone for: "${query}" (Requested Section: ${sectionLabel}).
-Correct any spelling mistakes in the artist or song name and provide the standardized "ARTIST - SONG TITLE (${sectionLabel})" in "cleanTitle".
-Include ONLY the necessary blocks to nail this tone on the physical Line 6 POD Go (between 3 and 6 blocks, NEVER include VOL).
-For each block, return the real Line 6 POD Go parameters needed (on Line 6 Amps/Drives knobs go from 0.0 to 10.0, e.g., Drive, Bass, Mid or Cut, Treble, Presence, Ch Vol; on Cab include Mic, Distance in cm, Low Cut, High Cut).
 
-Official Line 6 POD Go v2.50 Catalogs:
-- AMP: ${PODGO_CATALOG.AMP.join(', ')}
-- CAB: ${PODGO_CATALOG.CAB.join(', ')}
-- CAB MICS: ${PODGO_CATALOG.MIC.join(', ')}
-- DIST: ${PODGO_CATALOG.DIST.join(', ')}
-- DYN: ${PODGO_CATALOG.DYN.join(', ')}
-- EQ: ${PODGO_CATALOG.EQ.join(', ')}
-- MOD: ${PODGO_CATALOG.MOD.join(', ')}
-- DELAY: ${PODGO_CATALOG.DELAY.join(', ')}
-- REVERB: ${PODGO_CATALOG.REVERB.join(', ')}
-- WAH: ${PODGO_CATALOG.WAH.join(', ')}
-- PITCH: ${PODGO_CATALOG.PITCH.join(', ')}
+      const synthInstruction = allowSynth
+        ? `- SPECIAL REQUEST: User requested an atmospheric, luminous, dark, or experimental synth creation. Include a PITCH/SYNTH block (like "7: 4 OSC Generator", "13: Synth String" or "18: Analog Synth") or FILTER block in the chain!`
+        : `(NOTE: Only use PITCH or WAH if the song genuinely requires Whammy, Harmony, Octave, or Wah, such as Tom Morello, Iron Maiden harmonies, Kirk Hammett solos, etc.)`;
 
-Return ONLY valid JSON in English:
-{
-  "cleanTitle": "ARTIST - SONG (${sectionLabel})",
-  "section": "${section}",
-  "pickup": "Bridge or Neck",
-  "inputGate": "-45.0dB / 30%",
-  "desc": "Brief studio description of the rig and tone",
-  "ctrls": ["FS1: Scream 808", "EXP 1: Wah", "Snap 1: Rhythm | Snap 2: Lead"],
-  "blocks": [
-    {"type": "DIST", "name": "Scream 808", "p": {"Gain": 2.5, "Tone": 6.5, "Level": 8.0}},
-    {"type": "AMP", "name": "Brit 2203", "p": {"Drive": 6.8, "Bass": 6.0, "Mid": 7.0, "Treble": 6.5, "Presence": 5.5}},
-    {"type": "CAB", "name": "4x12 Greenback25", "p": {"Mic": "57 Dynamic", "Distance": "4.0cm", "Low Cut": "85Hz", "High Cut": "8.0kHz"}}
-  ]
-}`;
+      const prompt = `You are a master Line 6 POD Go Firmware v2.50 audio engineer and professional guitar tech. Calibrate an authentic studio guitar rig for: "${query}" (Requested Section: ${sectionLabel}).
+      RESEARCH & RIG PROTOCOL (Based on verified gear databases like Equipboard, Premier Guitar Rig Rundowns, and studio gear records):
+      1. Consult verified historical rig data for this artist, song, and section: Identify exact amplifiers, cabinets, mics, compressors, overdrives, modulation/chorus pedals, delays, EQs, and reverbs used in the original recording.
+      2. Gain Staging Discipline:
+         - Analyze if the original track/section is a pristine crystal-clean arpeggio/chorus (e.g. Héroes del Silencio "Héroe de Leyenda", clean intros). If so, DO NOT include a DIST distortion block; rely strictly on clean/breakup amplification (like "25: Jazz Rivet 120", "19: US Double Nrm", or "27: Essex A30"), compressors, modulation, and spatial effects.
+         - If it is a rock/metal/lead track (e.g. Iron Maiden "The Trooper", Metallica, Audioslave), include the exact tube amp (like "44: Brit 2203" or "57: Cali IV Lead"), matching 4x12 Cab, tight overdrive booster (like "12: Scream 808" or "15: Stupor OD"), Graphic EQ, and studio spatial blocks.
+      3. Dynamic Block Count & Formatting Constraints:
+         - Use as many blocks as genuinely needed to get closest to the real album tone (4, 5, 6, 7, 8 or 9 blocks). NEVER include VOL.
+         - Choose ONLY exact numbered model names from the Official Line 6 POD Go v2.50 Catalogs below (keep the order number prefix, e.g. "44: Brit 2203", "25: 4x12 Greenback25").
+         - Return 3 to 5 key tone-shaping parameters per block in "p", matching the exact parameter names and units shown in brackets [Param=DefaultValue] (on Line 6 POD Go, Amp/Drive knobs go from 0.0 to 10.0; on Cab include Mic, Position, Distance, Low Cut, High Cut).
+      ${synthInstruction}
+      Official Line 6 POD Go v2.50 Numbered Catalogs:
+      - DYN: ${formatCatalogWithKnobs(DYN)}
+      - WAH: ${formatCatalogWithKnobs(WAH)}
+      - PITCH: ${formatCatalogWithKnobs(PITCH)}
+      - FILTER: ${formatCatalogWithKnobs(FILTER)}
+      - DIST: ${formatCatalogWithKnobs(DIST)}
+      - AMP: ${formatCatalogWithKnobs(AMP)}
+      - CAB: ${formatCatalogWithKnobs(CAB)}
+      - EQ: ${formatCatalogWithKnobs(EQ)}
+      - MOD: ${formatCatalogWithKnobs(MOD)}
+      - DELAY: ${formatCatalogWithKnobs(DELAY)}
+      - REVERB: ${formatCatalogWithKnobs(REVERB)}
+      Return ONLY JSON in English: {"cleanTitle": "ARTIST - SONG (${sectionLabel})", "section": "${section}", "pickup": "Bridge or Neck", "inputGate": "-42.0dB / 25%", "blocks": [{"type": "DIST", "name": "12: Scream 808", "p": {"Gain": "1.8", "Tone": "6.8", "Level": "8.5"}}], "ctrls": ["FS1: Scream 808", "FS2: Delay", "Snap 1: Rhythm | Snap 2: Lead"], "desc": "Brief studio rig description citing historical gear"}`;
 
-      // Probamos primero tu modelo configurado y respaldamos automáticamente si la región requiere 2.5/2.0
       const modelsToTry = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
       let lastError = null;
 
@@ -768,7 +1368,7 @@ Return ONLY valid JSON in English:
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { responseMimeType: "application/json", temperature: 0.35 }
+              generationConfig: { responseMimeType: "application/json", temperature: 0.3 }
             })
           });
 
@@ -787,19 +1387,18 @@ Return ONLY valid JSON in English:
           lastError = err;
         }
       }
-      throw lastError || new Error("Google API Connection Error");
+      throw lastError || new Error("Google API Error");
     }
 
-    // --- FLUJO DE BÚSQUEDA INTELIGENTE (UNIVERSAL -> LOCALSTORAGE -> FIRESTORE VAULT -> IA) ---
     document.getElementById('aiToneForm').addEventListener('submit', async function(e) {
       e.preventDefault();
-
+      
       const currentUser = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
       const userEmail = currentUser && currentUser.email ? currentUser.email.toLowerCase() : "";
       const isAdmin = userEmail === "faustolute@gmail.com";
       const isUserPro = window.currentUserData && window.currentUserData.isPro === true;
       const generationsUsed = window.currentUserData && window.currentUserData.freeGenerationsUsed !== undefined ? window.currentUserData.freeGenerationsUsed : 0;
-
+      
       if (!isUserPro && !isAdmin && generationsUsed >= 3) {
         document.getElementById('paywallModal').classList.remove('hidden');
         return;
@@ -813,7 +1412,6 @@ Return ONLY valid JSON in English:
       let finalPreset = null;
       let isUniversal = false;
 
-      // 1. Buscar en Presets Universales
       for (let key in UNIVERSAL_PRESETS) {
         if (isSmartPresetMatch(query, UNIVERSAL_PRESETS[key])) {
           currentCacheKey = key;
@@ -823,7 +1421,6 @@ Return ONLY valid JSON in English:
         }
       }
 
-      // 2. Buscar en LocalStorage (PODGO_CACHE_)
       if (!finalPreset) {
         for (let i = 0; i < localStorage.length; i++) {
           let key = localStorage.key(i);
@@ -840,9 +1437,9 @@ Return ONLY valid JSON in English:
         }
       }
 
-      // 3. Buscar en la Bóveda Global de Firestore (podgo_global_presets)
       if (!finalPreset && window.globalCloudPresets) {
         for (let key in window.globalCloudPresets) {
+          if (!key.startsWith('PODGO_CACHE_')) continue;
           let cloudPreset = window.globalCloudPresets[key];
           if (cloudPreset && isSmartPresetMatch(query, cloudPreset)) {
             currentCacheKey = key;
@@ -857,7 +1454,7 @@ Return ONLY valid JSON in English:
         await registerSearchUsage();
         renderPreset(finalPreset, isUniversal);
       } else {
-        currentCacheKey = 'PODGO_CACHE_' + normalizeText(query).replace(/\s+/g, '_') + '_' + reqSection;
+        currentCacheKey = 'PODGO_CACHE_' + normalizeText(query).replace(/\s+/g, '_') + (reqSection !== 'main' ? '_' + reqSection : '');
         pendingSearchQuery = query;
         pendingSearchSection = reqSection;
         document.getElementById('confirmModalSubtitle').innerText = `Section: ${reqSection.toUpperCase()} • Line 6 POD Go v2.50`;
@@ -870,6 +1467,7 @@ Return ONLY valid JSON in English:
       const userEmail = currentUser && currentUser.email ? currentUser.email.toLowerCase() : "";
       const isAdmin = userEmail === "faustolute@gmail.com";
       const isUserPro = window.currentUserData && window.currentUserData.isPro === true;
+      
       if (isUserPro || isAdmin) return;
 
       window.currentUserData.freeGenerationsUsed = (window.currentUserData.freeGenerationsUsed || 0) + 1;
@@ -883,6 +1481,25 @@ Return ONLY valid JSON in English:
       }
     }
 
+    window.updateLibraryVisibility = function() {
+      const currentUser = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
+      const userEmail = currentUser && currentUser.email ? currentUser.email.toLowerCase() : "";
+      const isAdmin = userEmail === "faustolute@gmail.com";
+      const isUserPro = window.currentUserData && window.currentUserData.isPro === true;
+
+      const libraryBtn = document.getElementById('libraryNavBtn');
+      if (libraryBtn) {
+        libraryBtn.style.display = (!isUserPro && !isAdmin) ? 'none' : 'flex';
+      }
+
+      const headerProText = document.getElementById('headerProText');
+      const bottomProText = document.getElementById('bottomProText');
+      if (isUserPro || isAdmin) {
+        if (headerProText) headerProText.innerText = isAdmin ? "ADMIN PRO" : "PRO VIP";
+        if (bottomProText) bottomProText.innerText = "PRO VIP";
+      }
+    };
+    
     function cancelIaGeneration() {
       document.getElementById('confirmIaModal').classList.add('hidden');
       pendingSearchQuery = '';
@@ -900,7 +1517,7 @@ Return ONLY valid JSON in English:
       queryInput.classList.add('opacity-50'); searchBtn.classList.add('opacity-50');
       document.getElementById('btnText').innerText = "Building...";
       document.getElementById('btnIcon').className = "fa-solid fa-spinner animate-spin";
-
+      
       const apiKey = window.cloudGeminiKey || localStorage.getItem('PODGO_GEMINI_KEY') || localStorage.getItem('GE300_GEMINI_KEY');
       let finalPreset = null;
 
@@ -908,34 +1525,66 @@ Return ONLY valid JSON in English:
         if (apiKey && apiKey.trim() !== '') {
           const aiData = await fetchAITone(query, section, apiKey);
           let parsedBlocks = [];
-
           if (Array.isArray(aiData.blocks)) {
             aiData.blocks.forEach(bData => {
-              const rawType = (bData.type || "AMP").toUpperCase();
-              if (rawType === "VOL" || rawType === "VOLUME") return;
-              const normType = rawType === "DS/OD" ? "DIST" : (rawType === "COMP" ? "DYN" : (rawType === "REV" ? "REVERB" : rawType));
-              parsedBlocks.push({
-                type: POD_BLOCK_COLORS[normType] ? normType : "AMP",
-                model: bData.name || "Brit 2203",
-                knobs: bData.p || { "Drive": 5.0, "Bass": 5.0, "Mid": 5.0, "Treble": 5.0 }
-              });
+              let bType = (bData.type || "AMP").toUpperCase();
+              if (bType === "VOL" || bType === "VOLUME") return;
+              if (bType === "DS/OD") bType = "DIST";
+              if (bType === "COMP") bType = "DYN";
+              if (bType === "REV") bType = "REVERB";
+              if (bType === "SYNTH") bType = "PITCH";
+
+              let targetList = [];
+              if (bType === "WAH") targetList = WAH;
+              else if (bType === "PITCH") targetList = PITCH;
+              else if (bType === "FILTER") targetList = FILTER;
+              else if (bType === "DYN") targetList = DYN;
+              else if (bType === "DIST") targetList = DIST;
+              else if (bType === "AMP") targetList = AMP;
+              else if (bType === "CAB") targetList = CAB;
+              else if (bType === "EQ") targetList = EQ;
+              else if (bType === "MOD") targetList = MOD;
+              else if (bType === "DELAY") targetList = DELAY;
+              else if (bType === "REVERB") targetList = REVERB;
+
+              let match = fuzzyMatchModel(targetList, bData.name) || targetList[0];
+              if (match) {
+                let finalKnobs = { ...match.knobs() };
+                let displayKnobs = {};
+                if (bData.p) {
+                  for (let k in bData.p) {
+                    let realKey = Object.keys(finalKnobs).find(x => x.toLowerCase() === k.toLowerCase());
+                    if (realKey) {
+                      finalKnobs[realKey] = bData.p[k];
+                      displayKnobs[realKey] = bData.p[k];
+                    } else {
+                      finalKnobs[k] = bData.p[k];
+                      displayKnobs[k] = bData.p[k];
+                    }
+                  }
+                }
+                if (Object.keys(displayKnobs).length === 0) {
+                  const firstKeys = Object.keys(finalKnobs).slice(0, 5);
+                  firstKeys.forEach(fk => { displayKnobs[fk] = finalKnobs[fk]; });
+                }
+                parsedBlocks.push({ type: bType, model: match.name, knobs: finalKnobs, displayKnobs: displayKnobs });
+              }
             });
           }
 
-          const cleanTitle = aiData.cleanTitle
-            ? aiData.cleanTitle.toUpperCase()
-            : `${query.toUpperCase()} (${section.toUpperCase()})`;
+          const displayTitle = aiData.cleanTitle
+            ? `AI Preset: ${aiData.cleanTitle.toUpperCase()}`
+            : `AI Preset: ${query.toUpperCase()}`;
 
-          // Clave limpia basada en el título ortográficamente corregido + sección
-          const canonicalKey = 'PODGO_CACHE_' + normalizeText(cleanTitle).replace(/\s+/g, '_') + '_' + section;
+          const canonicalKey = 'PODGO_CACHE_' + normalizeText(aiData.cleanTitle || query).replace(/\s+/g, '_') + (section !== 'main' ? '_' + section : '');
           currentCacheKey = canonicalKey;
 
           finalPreset = {
             id: canonicalKey,
-            title: cleanTitle,
+            title: displayTitle,
             section: section,
             bank: "01C",
-            desc: aiData.desc || "Line 6 POD Go v2.50 Custom AI Preset.",
+            desc: `[CLOUD API] ${aiData.desc || ""}`,
             pickup: aiData.pickup || "Bridge",
             inputGate: aiData.inputGate || "-45.0dB / 30%",
             ctrls: aiData.ctrls || ["FS1: Drive", "EXP 1: Wah / Pitch", "Snap 1: Main Tone"],
@@ -946,16 +1595,21 @@ Return ONLY valid JSON in English:
             blocks: parsedBlocks
           };
 
+          // Guardado Local Instantáneo + Guardado en global_presets blindado con try/catch
           localStorage.setItem(currentCacheKey, JSON.stringify(finalPreset));
           window.globalCloudPresets[currentCacheKey] = finalPreset;
 
-          if (window.firebaseDb && window.firestoreDoc && window.firestoreSetDoc) {
-            await window.firestoreSetDoc(window.firestoreDoc(window.firebaseDb, "podgo_global_presets", currentCacheKey), finalPreset, { merge: true });
+          try {
+            if (window.firebaseDb && window.firestoreDoc && window.firestoreSetDoc) {
+              await window.firestoreSetDoc(window.firestoreDoc(window.firebaseDb, "global_presets", currentCacheKey), finalPreset, { merge: true });
+            }
+          } catch (cloudErr) {
+            console.warn("Saved locally (Cloud sync skipped):", cloudErr);
           }
 
           await registerSearchUsage();
         } else {
-          throw new Error("Master API Key not configured yet. Log in as Admin (faustolute@gmail.com) and tap the 🔑 icon to save your Gemini Key once.");
+          throw new Error("Master API Key not configured yet. Log in as Admin (faustolute@gmail.com) and save your Gemini Key once.");
         }
       } catch (error) {
         alert(`Connection or API Key notice:\n\n${error.message}`);
@@ -968,7 +1622,7 @@ Return ONLY valid JSON in English:
       if (finalPreset) renderPreset(finalPreset, false);
     }
 
-    // --- RENDERIZADO DE BARRAS HORIZONTALES RECTANGULARES (PANTALLA REAL LINE 6 POD GO) ---
+    // --- RENDERIZADO DE BARRAS HORIZONTALES RECTANGULARES (PANTALLA LCD LINE 6 POD GO) ---
     function parseKnobValue(valStr) {
       valStr = String(valStr !== undefined && valStr !== null ? valStr : "5.0");
       let numMatch = valStr.match(/-?\d+(\.\d+)?/);
@@ -991,8 +1645,8 @@ Return ONLY valid JSON in English:
       if (s.includes('khz')) return Math.min(100, Math.max(5, (parsed.num / 12) * 100));
       if (s.includes('hz')) return Math.min(100, Math.max(5, (parsed.num / 500) * 100));
       if (s.includes('cm')) return Math.min(100, Math.max(5, (parsed.num / 20) * 100));
+      if (s.includes('s') && !s.includes('ms')) return Math.min(100, Math.max(5, (parsed.num / 8) * 100));
       if (s.includes('%')) return Math.min(100, Math.max(0, parsed.num));
-      // En Line 6 POD Go las perillas de Amp, Drive, EQ y Reverb van de 0.0 a 10.0
       if (parsed.num <= 10 && parsed.num >= 0) return Math.min(100, Math.max(3, (parsed.num / 10) * 100));
       return Math.min(100, Math.max(3, parsed.num));
     }
@@ -1000,7 +1654,6 @@ Return ONLY valid JSON in English:
     function renderPodRectangularBar(label, value, blockType, colorHex) {
       let valStr = String(value !== undefined && value !== null ? value : "5.0");
       let parsed = parseKnobValue(valStr);
-      // Si es un número puro entre 0 y 10 sin decimales (ej. 5 -> 5.0 como en la pantalla de la Line 6)
       if (!parsed.isTextOnly && !parsed.prefix && !parsed.suffix && parsed.num <= 10 && Number.isInteger(parsed.num)) {
         valStr = parsed.num.toFixed(1);
       }
@@ -1013,17 +1666,12 @@ Return ONLY valid JSON in English:
              data-raw-val="${valStr}"
              onmousedown="handleDragStart(event, this)"
              ontouchstart="handleDragStart(event, this)">
-          <!-- Valor numérico arriba en el color del bloque -->
           <div class="text-[11px] font-mono font-bold text-center truncate px-0.5 mb-1"
                style="color: ${colorHex};"
                data-role="val-badge">${valStr}</div>
-
-          <!-- Barra Rectangular Horizontal estilo LCD POD Go -->
           <div class="pod-bar-track w-full">
             <div class="pod-bar-fill" style="width: ${pct}%; background-color: ${colorHex};" data-role="bar-fill"></div>
           </div>
-
-          <!-- Nombre de la perilla abajo en blanco -->
           <div class="text-[10px] font-sans font-semibold text-white text-center truncate mt-1 tracking-tight">
             ${label}
           </div>
@@ -1057,9 +1705,11 @@ Return ONLY valid JSON in English:
       document.getElementById('btnEdit').innerHTML = `<i class="fa-solid fa-pen-to-square"></i> <span>Edit</span>`;
       document.getElementById('editStatusBadge').innerHTML = `🔒 Safe Mode`;
       document.getElementById('editStatusBadge').className = "text-[9px] text-brand-accent bg-brand-accent/10 px-2 py-0.5 rounded font-mono border border-brand-accent/20";
+      if (isUniversal) document.getElementById('btnEdit').classList.add('hidden');
+      else document.getElementById('btnEdit').classList.remove('hidden');
 
       document.getElementById('presetBank').innerText = preset.bank || "01C";
-      document.getElementById('presetSectionTag').innerText = (preset.section || "main").toUpperCase();
+      document.getElementById('presetSectionTag').innerText = (preset.section || detectSection(preset.title) || "main").toUpperCase();
       document.getElementById('songTitle').innerText = (preset.title || "").replace(/^AI PRESET:\s*/i, "");
       document.getElementById('soundDescription').innerText = preset.desc || "";
       document.getElementById('pickupRec').innerText = preset.pickup || "Bridge";
@@ -1070,7 +1720,7 @@ Return ONLY valid JSON in English:
       } else {
         document.getElementById('ctrlAssignments').innerHTML = `<div class="text-brand-muted/50 italic">Standard Stomp Assignments</div>`;
       }
-
+      
       const currentUser = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
       const userUid = currentUser ? currentUser.uid : "guest";
       const isAdmin = currentUser && currentUser.email && currentUser.email.toLowerCase() === "faustolute@gmail.com";
@@ -1087,39 +1737,39 @@ Return ONLY valid JSON in English:
         });
       }
 
+      const blockBadge = document.getElementById('blockCountBadge');
+      if (blockBadge) {
+        blockBadge.innerText = `${(preset.blocks || []).length} Active Blocks`;
+      }
+
       renderMiniSignalChain(preset.blocks || []);
 
       const blocksContainer = document.getElementById('effectBlocksContainer');
       blocksContainer.innerHTML = '';
-
       (preset.blocks || []).forEach(block => {
         const colorMeta = POD_BLOCK_COLORS[block.type] || POD_BLOCK_COLORS.AMP;
-        const knobsToRender = block.displayKnobs ? block.displayKnobs : block.knobs;
+        let knobsToRender = (block.displayKnobs && Object.keys(block.displayKnobs).length > 0)
+          ? block.displayKnobs
+          : block.knobs;
         const entries = Object.entries(knobsToRender || {});
-        const colCount = Math.min(5, Math.max(3, entries.length));
-
         const barsHTML = entries.map(([k, v]) => renderPodRectangularBar(k, v, block.type, colorMeta.hex)).join('');
 
         const blockEl = document.createElement('div');
         blockEl.className = "rounded-xl overflow-hidden border border-slate-800 bg-[#0c1017] shadow-lg";
         blockEl.innerHTML = `
-          <!-- Cabecera de Bloque idéntica al Inspector LCD de Line 6 POD Go -->
           <div class="relative px-3.5 py-1.5 flex items-center justify-between border-t-2"
                style="border-top-color: ${colorMeta.hex}; background-color: ${colorMeta.bgHeader};">
             <div class="flex items-center gap-2 min-w-0">
-              <span class="text-xs font-extrabold tracking-tight" style="color: ${colorMeta.hex};">${colorMeta.label}</span>
+              <span class="text-xs font-extrabold uppercase tracking-tight" style="color: ${colorMeta.hex};">${colorMeta.label}</span>
               <span class="text-xs sm:text-sm font-bold text-white truncate">${block.model}</span>
             </div>
-            <!-- Puntos de página estilo LCD Line 6 -->
             <div class="flex items-center gap-1 shrink-0">
               <span class="w-1.5 h-1.5 rounded-full" style="background-color: ${colorMeta.hex};"></span>
               <span class="w-1.5 h-1.5 rounded-full bg-black/60"></span>
               <span class="w-1.5 h-1.5 rounded-full bg-black/60"></span>
             </div>
           </div>
-
-          <!-- Fila de Barras Rectangulares Horizontales -->
-          <div class="p-3 grid grid-cols-3 sm:grid-cols-${colCount} gap-3 bg-[#161215]/90">
+          <div class="p-3 grid grid-cols-3 sm:grid-cols-5 gap-3 bg-[#161215]/90">
             ${barsHTML}
           </div>
         `;
@@ -1127,31 +1777,8 @@ Return ONLY valid JSON in English:
       });
     }
 
-    // --- EDICIÓN TÁCTIL EN VIVO SOBRE LAS BARRAS RECTANGULARES ---
-    let draggingBar = null;
-    let startCoord = 0;
-    let initialNum = 0;
-
-    function toggleEditMode() {
-      isEditMode = !isEditMode;
-      const container = document.getElementById('mainPresetContainer');
-      const btnEdit = document.getElementById('btnEdit');
-      const badge = document.getElementById('editStatusBadge');
-      if (isEditMode) {
-        container.classList.remove('view-mode');
-        container.classList.add('edit-mode');
-        btnEdit.innerHTML = `<i class="fa-solid fa-lock-open text-brand-accent"></i> <span class="text-brand-accent">Done</span>`;
-        badge.innerHTML = `🔓 Edit Mode (Drag Bars)`;
-        badge.className = "text-[9px] text-yellow-400 bg-yellow-400/10 px-2 py-0.5 rounded font-mono border border-yellow-400/20";
-      } else {
-        container.classList.add('view-mode');
-        container.classList.remove('edit-mode');
-        btnEdit.innerHTML = `<i class="fa-solid fa-pen-to-square"></i> <span>Edit</span>`;
-        badge.innerHTML = `🔒 Safe Mode`;
-        badge.className = "text-[9px] text-brand-accent bg-brand-accent/10 px-2 py-0.5 rounded font-mono border border-brand-accent/20";
-      }
-    }
-
+    // --- EDICIÓN TÁCTIL DESLIZANDO LAS BARRAS RECTANGULARES ---
+    let draggingBar = null; let startCoord = 0; let initialNum = 0;
     function updateBarVisual(barEl, valStr) {
       let parsed = parseKnobValue(valStr);
       let pct = calculatePodBarPercentage(parsed);
@@ -1177,7 +1804,7 @@ Return ONLY valid JSON in English:
       let parsed = parseKnobValue(draggingBar.dataset.rawVal);
       const s = parsed.suffix.toLowerCase();
 
-      let step = ( parsed.num <= 10 && !s.includes('ms') && !s.includes('hz') && !s.includes('%') ) ? 0.08 : 0.5;
+      let step = (parsed.num <= 10 && !s.includes('ms') && !s.includes('hz') && !s.includes('%')) ? 0.08 : 0.5;
       let newVal = initialNum + (deltaX * step);
 
       if (s.includes('ms')) newVal = Math.max(0, Math.min(1000, Math.round(newVal)));
@@ -1200,6 +1827,9 @@ Return ONLY valid JSON in English:
             let bIdx = cached.blocks.findIndex(b => b.type === bType);
             if (bIdx !== -1) {
               cached.blocks[bIdx].knobs[kName] = rVal;
+              if (cached.blocks[bIdx].displayKnobs && cached.blocks[bIdx].displayKnobs[kName] !== undefined) {
+                cached.blocks[bIdx].displayKnobs[kName] = rVal;
+              }
               localStorage.setItem(currentCacheKey, JSON.stringify(cached));
             }
           }
@@ -1214,18 +1844,19 @@ Return ONLY valid JSON in English:
     document.addEventListener('touchmove', handleDragMove, { passive: false });
     document.addEventListener('touchend', handleDragEnd);
 
-    // --- VOTACIÓN INTERACTIVA POR ESTRELLAS (1-5 ★) SINCRONIZADA CON FIRESTORE ---
     function getActivePresetObject() {
       if (UNIVERSAL_PRESETS[currentCacheKey]) return UNIVERSAL_PRESETS[currentCacheKey];
       const localRaw = localStorage.getItem(currentCacheKey);
-      if (localRaw) return JSON.parse(localRaw);
+      if (localRaw) {
+        try { return JSON.parse(localRaw); } catch(e) {}
+      }
       return window.globalCloudPresets[currentCacheKey] || null;
     }
 
     function renderInteractiveStars(preset) {
       const container = document.getElementById('ratingStars');
       if (!container || !preset) return;
-      const currentRating = Number(preset.rating) || 4.9;
+      const currentRating = (preset.rating && Number(preset.rating) > 0) ? Number(preset.rating) : 4.9;
       const votesCount = Number(preset.votesCount) || 1;
       const roundedStars = Math.round(currentRating);
 
@@ -1243,7 +1874,7 @@ Return ONLY valid JSON in English:
       if (!preset) return;
 
       const voteKey = `podgo_voted_${currentCacheKey}`;
-      const prevRating = Number(preset.rating) || 4.9;
+      const prevRating = (preset.rating && Number(preset.rating) > 0) ? Number(preset.rating) : 4.9;
       const prevVotes = Number(preset.votesCount) || 1;
       const alreadyVoted = localStorage.getItem(voteKey);
 
@@ -1264,140 +1895,15 @@ Return ONLY valid JSON in English:
         window.globalCloudPresets[currentCacheKey] = preset;
         try {
           if (window.firebaseDb && window.firestoreDoc && window.firestoreSetDoc) {
-            await window.firestoreSetDoc(window.firestoreDoc(window.firebaseDb, "podgo_global_presets", currentCacheKey), {
+            await window.firestoreSetDoc(window.firestoreDoc(window.firebaseDb, "global_presets", currentCacheKey), {
               rating: newRating,
               votesCount: newVotes
             }, { merge: true });
           }
-        } catch (e) {}
+        } catch (e) { console.warn("Error sincronizando voto:", e); }
       }
     }
-
-    // --- LIBRARY, FAVORITOS Y BÓVEDA SECRETA DE ADMINISTRADOR (FAUSTO) ---
-    function switchTab(tab) {
-      document.getElementById('viewSearch').classList.add('hidden');
-      document.getElementById('viewLibrary').classList.add('hidden');
-      document.getElementById('navSearch').classList.replace('text-brand-accent', 'text-brand-muted');
-
-      const libBtn = document.getElementById('libraryNavBtn');
-      if (libBtn) libBtn.classList.replace('text-brand-accent', 'text-brand-muted');
-
-      if (tab === 'search') {
-        document.getElementById('viewSearch').classList.remove('hidden');
-        document.getElementById('viewSearch').classList.add('flex');
-        document.getElementById('navSearch').classList.replace('text-brand-muted', 'text-brand-accent');
-      } else if (tab === 'library') {
-        document.getElementById('viewLibrary').classList.remove('hidden');
-        document.getElementById('viewLibrary').classList.add('flex');
-        if (libBtn) libBtn.classList.replace('text-brand-muted', 'text-brand-accent');
-        renderLibrary();
-      }
-    }
-
-    function loadPresetFromLibrary(cacheKey, isUniversal = false) {
-      let presetData = isUniversal
-        ? UNIVERSAL_PRESETS[cacheKey]
-        : (JSON.parse(localStorage.getItem(cacheKey)) || window.globalCloudPresets[cacheKey]);
-      if (presetData) {
-        currentCacheKey = cacheKey;
-        renderPreset(presetData, isUniversal);
-        switchTab('search');
-      }
-    }
-
-    function renderLibrary() {
-      const currentUser = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
-      const userEmail = currentUser && currentUser.email ? currentUser.email.toLowerCase() : "";
-      const userUid = currentUser ? currentUser.uid : "guest";
-      const isAdmin = userEmail === "faustolute@gmail.com";
-
-      const featuredContainer = document.getElementById('featuredList');
-      featuredContainer.innerHTML = '';
-      Object.keys(UNIVERSAL_PRESETS).forEach(key => {
-        let p = UNIVERSAL_PRESETS[key];
-        featuredContainer.innerHTML += `
-          <div class="bg-brand-panel border border-brand-border/60 p-3 rounded-xl flex items-center justify-between cursor-pointer hover:bg-brand-card transition-colors" onclick="loadPresetFromLibrary('${key}', true)">
-            <div>
-              <h4 class="text-xs font-bold text-white">${p.title}</h4>
-              <div class="flex items-center gap-2 mt-1">
-                <span class="text-[9px] font-mono text-brand-accent bg-brand-accent/10 px-1.5 rounded border border-brand-accent/20">VERIFIED v2.50</span>
-                <span class="text-[9px] font-mono text-slate-400 uppercase">${p.section || 'main'}</span>
-                <span class="text-[9px] text-yellow-400">★★★★★</span>
-              </div>
-            </div>
-            <i class="fa-solid fa-chevron-right text-brand-muted text-xs"></i>
-          </div>`;
-      });
-
-      const favContainer = document.getElementById('favoritesList');
-      favContainer.innerHTML = '';
-      let hasFavs = false;
-      let allCachedItemsHtml = '';
-      let totalCachedCount = 0;
-
-      for (let i = 0; i < localStorage.length; i++) {
-        let key = localStorage.key(i);
-        if (key && key.startsWith('PODGO_CACHE_')) {
-          try {
-            let p = JSON.parse(localStorage.getItem(key));
-            let isFavForThisUser = Array.isArray(p.favUsers)
-              ? p.favUsers.includes(userUid)
-              : (isAdmin && p.isFav === true);
-
-            if (isFavForThisUser) {
-              hasFavs = true;
-              favContainer.innerHTML += `
-                <div class="bg-brand-panel border border-brand-border/60 p-3 rounded-xl flex items-center justify-between cursor-pointer hover:bg-brand-card transition-colors">
-                  <div class="flex-1" onclick="loadPresetFromLibrary('${key}', false)">
-                    <h4 class="text-xs font-bold text-white truncate max-w-[220px]">${p.title}</h4>
-                    <span class="text-[9px] font-mono text-brand-muted">★ ${(Number(p.rating) || 4.9).toFixed(1)}</span>
-                  </div>
-                  <button onclick="deleteFavorite('${key}')" class="p-2 text-brand-muted hover:text-red-500 transition-colors">
-                    <i class="fa-solid fa-trash text-xs"></i>
-                  </button>
-                </div>`;
-            }
-
-            if (isAdmin) {
-              totalCachedCount++;
-              allCachedItemsHtml += `
-                <div class="bg-brand-panel/70 border border-brand-accent/30 p-3 rounded-xl flex items-center justify-between cursor-pointer hover:bg-brand-card transition-colors" onclick="loadPresetFromLibrary('${key}', false)">
-                  <div>
-                    <h4 class="text-xs font-bold text-white">${p.title}</h4>
-                    <span class="text-[9px] font-mono text-brand-accent">SECTION: ${(p.section || 'main').toUpperCase()}</span>
-                  </div>
-                  <i class="fa-solid fa-unlock-keyhole text-brand-accent text-xs"></i>
-                </div>`;
-            }
-          } catch(e) {}
-        }
-      }
-
-      if (!hasFavs) {
-        favContainer.innerHTML = `<p class="text-[11px] text-brand-muted italic bg-brand-card p-3 rounded-lg border border-brand-border/30">No favorites saved yet. Tap the ❤️ icon on any tone to save it here.</p>`;
-      }
-
-      let adminVaultEl = document.getElementById('adminMasterVault');
-      if (isAdmin) {
-        if (!adminVaultEl) {
-          adminVaultEl = document.createElement('div');
-          adminVaultEl.id = 'adminMasterVault';
-          adminVaultEl.className = 'space-y-3 pt-4 border-t border-brand-accent/30';
-          document.getElementById('viewLibrary').appendChild(adminVaultEl);
-        }
-        adminVaultEl.innerHTML = `
-          <h2 class="text-xs font-bold font-mono text-brand-accent uppercase flex items-center justify-between border-b border-brand-border pb-1">
-            <span><i class="fa-solid fa-vault"></i> Admin Secret Vault (All POD Go Tones)</span>
-            <span class="bg-brand-accent text-white px-1.5 py-0.5 rounded text-[9px]">${totalCachedCount} Tones</span>
-          </h2>
-          <div class="grid grid-cols-1 gap-2.5">
-            ${allCachedItemsHtml || '<p class="text-[11px] text-brand-muted italic">No AI tones in vault yet.</p>'}
-          </div>`;
-      } else if (adminVaultEl) {
-        adminVaultEl.remove();
-      }
-    }
-
+    
     function toggleFavorite() {
       if (UNIVERSAL_PRESETS[currentCacheKey]) {
         alert("Already in your Featured Library.");
@@ -1421,18 +1927,6 @@ Return ONLY valid JSON in English:
       updateFavUI(!isCurrentlyFav);
     }
 
-    function deleteFavorite(key) {
-      if (confirm("Remove from favorites?")) {
-        const currentUser = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
-        const userUid = currentUser ? currentUser.uid : "guest";
-        let p = JSON.parse(localStorage.getItem(key));
-        if (Array.isArray(p.favUsers)) p.favUsers = p.favUsers.filter(id => id !== userUid);
-        p.isFav = false;
-        localStorage.setItem(key, JSON.stringify(p));
-        renderLibrary();
-      }
-    }
-
     function updateFavUI(isFav) {
       let icon = document.getElementById('favIcon');
       let btn = document.getElementById('btnFav');
@@ -1447,17 +1941,6 @@ Return ONLY valid JSON in English:
       }
     }
 
-    window.updateLibraryVisibility = function() {
-      const libraryBtn = document.getElementById('libraryNavBtn');
-      if (libraryBtn) {
-        const currentUser = window.firebaseAuth ? window.firebaseAuth.currentUser : null;
-        const userEmail = currentUser && currentUser.email ? currentUser.email.toLowerCase() : "";
-        const isAdmin = userEmail === "faustolute@gmail.com";
-        const isUserPro = window.currentUserData && window.currentUserData.isPro === true;
-        libraryBtn.style.display = (!isUserPro && !isAdmin) ? 'none' : 'flex';
-      }
-    };
-
     function openBpmTool() {
       const bpm = prompt("Line 6 POD Go Delay Calculator — Enter song BPM:", "120");
       if (!bpm || isNaN(bpm)) return;
@@ -1465,7 +1948,7 @@ Return ONLY valid JSON in English:
       const quarter = Math.round(60000 / b);
       const dottedEighth = Math.round(quarter * 0.75);
       const eighth = Math.round(quarter * 0.5);
-      alert(`POD Go Delay Times for ${b} BPM:\n\n• 1/4 Note: ${quarter} ms\n• 1/8 Dotted (U2/Cerati): ${dottedEighth} ms\n• 1/8 Note: ${eighth} ms`);
+      alert(`Line 6 POD Go Delay Times for ${b} BPM:\n\n• 1/4 Note: ${quarter} ms\n• 1/8 Dotted (U2/Cerati): ${dottedEighth} ms\n• 1/8 Note: ${eighth} ms`);
     }
 
     window.addEventListener('DOMContentLoaded', () => {
