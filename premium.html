@@ -48,7 +48,7 @@
     .plan-active { border-color: #ff2a2a !important; background-color: rgba(255, 42, 42, 0.06) !important; }
   </style>
 
-  <!-- FIREBASE CONEXIÓN PARA PAGOS Y ESTADO PRO -->
+  <!-- FIREBASE CONEXIÓN PARA PAGOS Y ESTADO PRO EXCLUSIVO LINE 6 -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
     import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js";
@@ -79,7 +79,8 @@
         document.getElementById('userEmailBadge').innerText = user.email;
         const userRef = doc(db, "users", user.uid);
         const userSnap = await getDoc(userRef);
-        if (userSnap.exists() && userSnap.data().isPro) {
+        // Validamos exclusivamente isProPodGo para no cruzar con la Mooer
+        if (userSnap.exists() && userSnap.data().isProPodGo) {
           document.getElementById('alreadyProBanner').classList.remove('hidden');
         }
       }
@@ -100,7 +101,7 @@
 
     <!-- AVISO SI YA ES PRO -->
     <div id="alreadyProBanner" class="hidden bg-brand-accent/15 border border-brand-accent rounded-xl p-3 text-center">
-      <p class="text-xs font-bold text-brand-accent"><i class="fa-solid fa-circle-check"></i> Your account already has PRO VIP status active!</p>
+      <p class="text-xs font-bold text-brand-accent"><i class="fa-solid fa-circle-check"></i> Your account already has Line 6 POD Go PRO VIP active!</p>
     </div>
 
     <!-- TÍTULO PRINCIPAL -->
@@ -248,8 +249,8 @@
   <script>
     let selectedPlan = 'monthly';
 
-    // Tus enlaces oficiales de Stripe (puedes usar los mismos o unos específicos para Line 6 POD Go)
-        const STRIPE_LINKS = {
+    // Enlaces oficiales exclusivos para Line 6 POD Go
+    const STRIPE_LINKS = {
       monthly: "https://buy.stripe.com/bJebJ23Nl5JAfGI4LU7bW04",
       yearly: "https://buy.stripe.com/8x214oerZ1tk7aca6e7bW03"
     };
@@ -295,10 +296,11 @@
         if (btnText) btnText.innerText = "Activating PRO VIP Account...";
 
         const userRef = window.firestoreDoc(window.firebaseDb, "users", user.uid);
+        // Guardamos isProPodGo para separar la suscripción de la Mooer GE300
         await window.firestoreSetDoc(userRef, {
-          isPro: true,
-          planType: planName || 'monthly',
-          upgradedAt: new Date().toISOString()
+          isProPodGo: true,
+          podGoPlanType: planName || 'monthly',
+          podGoUpgradedAt: new Date().toISOString()
         }, { merge: true });
 
         alert("🎉 Payment Confirmed! Your Line 6 POD Go AI PRO VIP Studio is now unlocked.");
