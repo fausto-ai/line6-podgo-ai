@@ -66,7 +66,7 @@
   </style>
 
   <!-- FIREBASE SECURITY GUARD, GLOBAL VAULT (OPCIÓN B AISLADA POR PREFIJO PODGO_CACHE_) & SMART SYNC -->
-  <script type="module">
+    <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
     import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js";
     import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js";
@@ -93,7 +93,7 @@
     window.firestoreCollection = collection;
     window.firestoreGetDocs = getDocs;
 
-    window.currentUserData = { freeGenerationsUsed: 0, isPro: false };
+    window.currentUserData = { freeGenerationsUsed: 0, isPro: false, isProPodGo: false };
     window.globalCloudPresets = {};
     window.cloudGeminiKey = "";
 
@@ -113,11 +113,12 @@
           keyBtn.style.display = isAdmin ? 'inline-flex' : 'none';
         }
 
-        // 1. Perfil del usuario + Retorno VIP Automático de Stripe (?pro_activated=true)
+        // 1. Perfil del usuario + Retorno VIP Automático de Stripe (?payment=success)
         const userRef = doc(db, "users", user.uid);
         try {
           const urlParams = new URLSearchParams(window.location.search);
-          const activatedFromStripe = urlParams.get('pro_activated') === 'true';
+          const activatedFromStripe = urlParams.get('payment') === 'success' || urlParams.get('pro_activated') === 'true';
+          const paidPlan = urlParams.get('plan') || 'monthly';
 
           const userSnap = await getDoc(userRef);
           if (userSnap.exists()) {
@@ -127,19 +128,30 @@
               uid: user.uid,
               email: user.email,
               freeGenerationsUsed: 0,
-              isPro: false,
+              isProPodGo: false,
               createdAt: new Date().toISOString()
             };
-            await setDoc(userRef, window.currentUserData);
+            await setDoc(userRef, window.currentUserData, { merge: true });
           }
 
-          if (activatedFromStripe && !window.currentUserData.isPro) {
-            window.currentUserData.isPro = true;
-            await setDoc(userRef, { isPro: true, proUpdatedAt: new Date().toISOString() }, { merge: true });
+          // Si viene de pagar en Stripe, activamos exclusivamente isProPodGo en Firebase
+          if (activatedFromStripe) {
+            window.currentUserData.isProPodGo = true;
+            await setDoc(userRef, {
+              isProPodGo: true,
+              podGoPlanType: paidPlan,
+              podGoUpgradedAt: new Date().toISOString()
+            }, { merge: true });
             window.history.replaceState({}, document.title, window.location.pathname);
+            alert("🎉 Payment Confirmed! Your Line 6 POD Go AI PRO VIP Studio is now unlocked.");
           }
 
-          localStorage.setItem("podgo_pro_status", window.currentUserData.isPro ? "true" : "false");
+          // Mapeamos isProPodGo (o cuenta Admin) a la variable local isPro de esta app
+          // Así la Mooer (isPro en Firebase) y la Line 6 (isProPodGo en Firebase) nunca se mezclan
+          const hasPodGoPro = Boolean(window.currentUserData.isProPodGo) || isAdmin;
+          window.currentUserData.isPro = hasPodGoPro;
+
+          localStorage.setItem("podgo_pro_status", hasPodGoPro ? "true" : "false");
           if (typeof window.updateLibraryVisibility === 'function') {
             window.updateLibraryVisibility();
           }
