@@ -1411,7 +1411,7 @@
       const isUserPro = window.currentUserData && window.currentUserData.isPro === true;
       const generationsUsed = window.currentUserData && window.currentUserData.freeGenerationsUsed !== undefined ? window.currentUserData.freeGenerationsUsed : 0;
       
-      if (!isUserPro && !isAdmin && generationsUsed >= 3) {
+      if (!isUserPro && !isAdmin && generationsUsed >= 2) {
         document.getElementById('paywallModal').classList.remove('hidden');
         return;
       }
